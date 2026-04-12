@@ -3,9 +3,10 @@ name: lancar
 description: >
   Lançamento avulso de transação no FIN App. Entende instruções em linguagem
   natural ("lança 45 no mercado, débito Nubank", "20 conto no pão, dinheiro",
-  "saquei 200 no Itaú", "recebi 4mil do cliente X"), aplica regras aprendidas
-  de Estabelecimentos.md, trata dinheiro vivo e saque corretamente, sempre
-  confirma em uma linha antes de criar. Aprende e atualiza memória depois.
+  "saquei 200 no Itaú", "recebi 4mil do cliente X", "vendi $100 e veio R$540",
+  "tô com $487 na carteira"), aplica regras aprendidas de Estabelecimentos.md,
+  trata dinheiro vivo, saque, câmbio USD/BRL e ajuste de saldo corretamente,
+  sempre confirma em uma linha antes de criar. Aprende e atualiza memória.
 argument-hint: "[descrição da transação em linguagem natural]"
 allowed-tools: Read, Write, Edit, Glob, Grep
 ---
@@ -47,19 +48,31 @@ Pega `$ARGUMENTS` (ou a fala livre da pessoa) e extrai:
 
 | Frase | Tipo | Valor | Estabelecimento | Conta |
 |---|---|---|---|---|
-| "lança 45 no mercado, débito Nubank" | despesa | 45 | mercado | Nubank (débito) |
-| "20 conto no pão, dinheiro" | despesa | 20 | padaria/pão | Dinheiro |
-| "120 no posto, crédito C6" | despesa | 120 | posto | C6 (crédito) |
-| "recebi 4 mil do cliente X" | receita | 4000 | cliente X | (perguntar conta destino) |
-| "transferi 500 do Nubank pro C6" | transferência | 500 | — | Nubank → C6 |
-| "saquei 200 no Itaú" | **transferência** | 200 | — | Itaú → Dinheiro |
-| "PIX 50 pra mãe" | despesa OU transferência | 50 | mãe | (perguntar conta origem) |
+| "lança 45 no mercado, débito Nubank" | despesa | R$45 | mercado | Nubank (débito) |
+| "20 conto no pão, dinheiro" | despesa | R$20 | padaria/pão | Dinheiro |
+| "120 no posto, crédito C6" | despesa | R$120 | posto | C6 (crédito) |
+| "recebi 4 mil do cliente X" | receita | R$4000 | cliente X | (perguntar conta destino) |
+| "transferi 500 do Nubank pro C6" | transferência | R$500 | — | Nubank → C6 |
+| "saquei 200 no Itaú" | **transferência** | R$200 | — | Itaú → Dinheiro |
+| "PIX 50 pra mãe" | despesa OU transferência | R$50 | mãe | (perguntar conta origem) |
+| "vendi $100 e veio R$540" | **câmbio** (vender USD) | $100 / R$540 | — | Conta USD → Conta BRL |
+| "comprei $50 por R$280" | **câmbio** (comprar USD) | R$280 / $50 | — | Conta BRL → Conta USD |
+| "tô com $487 na carteira" | **ajuste de saldo** | $487 (absoluto) | — | Conta USD |
+| "gastei $20 no AliExpress" | **ajuste de saldo** (subtrai) | -$20 | AliExpress | Conta USD |
+| "ajusta o Caixa pra 1234,56" | **ajuste de saldo** | R$1234,56 (absoluto) | — | Conta BRL |
 
 **Notação numérica BR:**
 - "20 conto" / "20 mango" / "20 pila" = R$20
 - "4 mil" / "4k" = R$4.000
 - "500 reais" / "500" = R$500
 - Vírgula é decimal: "45,50" = R$45,50
+
+**Notação USD:**
+- "$100" / "100 dólares" / "100 dolar" / "100 USD" = US$100
+- "$1.5k" / "1500 dólares" = US$1.500
+- Quando a pessoa só fala "100" sem moeda, **assume BRL** (default)
+- Quando a pessoa usa `$` no início, **assume USD**
+- Em caso de dúvida, pergunta ("100 reais ou 100 dólares?")
 
 ### Passo 2 — Tratamento especial: dinheiro vivo
 
@@ -91,6 +104,113 @@ PIX pra alguém pode ser **despesa** (se for pagamento) ou **transferência** (s
 
 Se ambíguo, pergunta:
 > 50 pra mãe é despesa (vai gastar) ou transferência (entre tuas contas)?
+
+### Passo 4.5 — Tratamento especial: USD, câmbio e ajuste de saldo
+
+**Pré-requisito:** se a pessoa tem alguma conta USD no FIN, leia a **seção 10 do `fin://docs/guia`** uma vez por sessão antes de operar qualquer coisa em USD. Sem isso, você comete erros de modelo.
+
+#### Regras de negócio críticas (do FIN)
+
+1. **`fin_criar_despesa` e `fin_criar_receita` são bloqueados pra contas USD** (BRL only). Se você tentar, vai falhar com mensagem clara apontando pra tool certa. **Nunca tente lançar despesa/receita categorizada em USD.**
+2. **Câmbio é uma operação atômica** via `fin_cambio`. Cria 2 transações vinculadas (uma despesa na origem, uma receita no destino), ambas com categoria "Câmbio" e um `exchange_pair_id` compartilhado. Se uma falhar, a outra é desfeita.
+3. **O FIN não usa cotação automática.** A pessoa informa as **duas quantias manualmente** (USD e BRL), porque a taxa real varia (banco, spread, operação manual). Você nunca calcula cotação.
+4. **`fin_ajustar_saldo_conta` recebe saldo ABSOLUTO, não delta.** Se a conta tinha $400 e a pessoa quer somar $50, você precisa **ler o saldo atual primeiro** (`fin_saldos`) e passar `$450`, não `$50`.
+5. **Câmbio só funciona entre 2 contas cash de moedas diferentes** (uma BRL, outra USD). Cartão de crédito não é suportado.
+6. **Cartão de crédito em USD não é suportado** no v0.
+
+#### Caso A — Câmbio (vender ou comprar dólar)
+
+**Padrões de fala:**
+- "Vendi $100 e veio R$540" → vender USD (USD → BRL)
+- "Comprei $50 por R$280" → comprar USD (BRL → USD)
+- "Cambiei R$1000 em $185" → comprar USD
+- "Troquei $200 e veio R$1080" → vender USD
+
+**Fluxo:**
+1. Identifica direção (vender = USD→BRL, comprar = BRL→USD)
+2. Identifica as duas contas (`from_account_name`, `to_account_name`):
+   - **Vender:** from = conta USD da pessoa (Wise, conta nos EUA, carteira USD), to = conta BRL
+   - **Comprar:** from = conta BRL, to = conta USD
+   - Se a pessoa não disser explicitamente qual conta, lê `Contas e Cartões.md` e pergunta se houver mais de uma opção
+3. Captura **as duas quantias** (em centavos da moeda de cada conta):
+   - `amount_from_cents` = quanto sai da origem
+   - `amount_to_cents` = quanto entra no destino
+   - Se a pessoa só falou uma das duas (ex: "vendi $100" sem dizer quanto recebeu), **pergunta a outra**: "Vendeu $100 — quanto veio em reais?"
+4. Confirma em **uma linha**:
+   > Câmbio: vender US$100 → R$540 / Wise USD → Itaú / hoje. Confirma?
+5. Chama `fin_cambio` com os campos:
+   ```
+   {
+     "from_account_name": "Wise USD",
+     "to_account_name": "Itaú",
+     "amount_from_cents": 10000,
+     "amount_to_cents": 54000,
+     "description": "Venda de dólar"
+   }
+   ```
+6. Sucesso: avisa que criou as 2 transações vinculadas em "Câmbio".
+
+**Avisos importantes:**
+- **Nunca invente cotação.** Se a pessoa só sabe uma das duas quantias, pergunta a outra. Não calcula.
+- **Confere a categoria "Câmbio"** existe (criada automaticamente no primeiro uso pelo FIN, mas tu pode ver via `fin_listar_categorias`)
+- **Não funciona com cartão de crédito** — se a pessoa tentar câmbio envolvendo cartão, avisa e oferece operar conta cash equivalente
+
+#### Caso B — Ajustar saldo manualmente (USD ou BRL)
+
+**Padrões de fala:**
+- "Tô com $487 na carteira agora" → ajuste pra valor absoluto $487
+- "Agora tenho $1200 na Wise" → ajuste pra $1200
+- "Achei mais $50, total tá em $537" → ajuste pra $537 (a pessoa já fez a conta)
+- "Achei mais $50 na carteira" (sem dizer total) → **precisa ler saldo atual primeiro**, somar 50, passar como absoluto
+- "Ajusta o Caixa pra 1234,56" → ajuste pra R$1234,56 absoluto
+- "O saldo do Itaú tá errado, tá em R$2000 e devia ser R$2150" → ajuste pra R$2150
+
+**Fluxo:**
+1. Identifica a conta (lê `Contas e Cartões.md`)
+2. Identifica se é **valor absoluto** (a pessoa já fez a conta) ou **delta** (tipo "achei mais $50"):
+   - Absoluto: tu já tem o valor final
+   - Delta: **chama `fin_saldos` ou `fin_listar_contas` pra pegar o saldo atual**, soma/subtrai o delta, e usa o resultado como absoluto
+3. Confirma em uma linha mostrando **antes e depois**:
+   > Ajustar saldo: Wise USD de $437 → $487 (somou $50). Confirma?
+4. Chama `fin_ajustar_saldo_conta`:
+   ```
+   {
+     "account_name": "Wise USD",
+     "amount_cents": 48700
+   }
+   ```
+5. Sucesso: avisa o novo saldo.
+
+**Caso especial dentro do ajuste de saldo: gasto em USD (sem categorização)**
+
+> "Gastei $20 no AliExpress"
+
+No v0 do FIN, **não dá pra lançar despesa categorizada em USD**. O jeito recomendado:
+1. Lê o saldo atual da conta USD (`fin_saldos`)
+2. Subtrai $20 do saldo
+3. Chama `fin_ajustar_saldo_conta` passando o novo saldo absoluto
+4. **Avisa a pessoa explicitamente que a categorização ficou de fora** (limitação do v0):
+   > Ajustei: Wise USD de $487 → $467 (gastou $20 no AliExpress). Não dá pra categorizar gasto em USD ainda (limitação do v0), mas o saldo tá certo. Quando tu fizer câmbio depois, a saída de dólar fica registrada na categoria Câmbio. Beleza?
+
+#### Caso C — Ajustar saldo BRL pra correção
+
+Mesma lógica do Caso B, mas conta BRL. Útil pra corrigir saldo após conferir extrato.
+
+> "Ajusta o saldo do Caixa pra R$1234,56"
+
+1. Confirma:
+   > Ajustar saldo: Caixa de R$1100 → R$1234,56. Confirma?
+2. Chama `fin_ajustar_saldo_conta`
+
+**Atenção:** ajuste de saldo BRL **não cria transação**, então não aparece em relatórios mensais como movimentação. É um ajuste contábil. Se a pessoa quiser que apareça como receita/despesa categorizada, oriente a usar `fin_criar_receita`/`fin_criar_despesa` em vez disso.
+
+#### Quando pedir leitura prévia de saldo
+
+Você precisa ler o saldo atual ANTES do ajuste em 2 situações:
+1. **Delta:** "achei mais $50", "tirei $30", "somou X" — você precisa do saldo pra calcular o absoluto
+2. **Confirmação visual:** sempre que for útil mostrar antes/depois pra pessoa confirmar (basicamente sempre)
+
+Use `fin_saldos` ou `fin_listar_contas` (a tool retorna os saldos junto com as contas).
 
 ### Passo 5 — Aplicar regras de Estabelecimentos.md
 
@@ -149,9 +269,12 @@ Conforme o tipo:
 
 | Tipo | Tool |
 |---|---|
-| Despesa | `fin_criar_despesa` |
-| Receita | `fin_criar_receita` |
+| Despesa BRL | `fin_criar_despesa` |
+| Receita BRL | `fin_criar_receita` |
 | Transferência (incluindo saque) | `fin_criar_transferencia` |
+| Câmbio (vender ou comprar dólar) | `fin_cambio` |
+| Ajuste de saldo (BRL ou USD) | `fin_ajustar_saldo_conta` |
+| Gasto em USD (sem categorização, v0) | `fin_ajustar_saldo_conta` (subtraindo do saldo) |
 
 Confere se a tool executou OK. Se erro, mostra mensagem clara e tenta uma vez mais ou pergunta como proceder.
 
@@ -249,6 +372,12 @@ Se ela disser "qualquer lugar, sei lá", aceita "Almoço" como descrição gené
 8. **Encher linguiça** → resposta é curta. "✓ Lançado. [resumo]" e fim.
 9. **Pedir confirmação com 5 linhas de texto** → uma linha basta
 10. **Esquecer de atualizar `Estabelecimentos.md`** → toda transação com estabelecimento novo gera linha nova
+11. **Tentar `fin_criar_despesa` em conta USD** → bloqueado. Use `fin_ajustar_saldo_conta` pra subtrair do saldo (sem categorização, limitação v0)
+12. **Passar delta em vez de absoluto pro `fin_ajustar_saldo_conta`** → o valor é SEMPRE absoluto. Pra delta, lê o saldo atual primeiro e calcula
+13. **Inventar cotação no câmbio** → o FIN não usa cotação automática. Se a pessoa só falou uma das duas quantias, pergunta a outra
+14. **Lançar câmbio como 2 transferências separadas** → câmbio é `fin_cambio` (atômico, 1 chamada, 2 transações vinculadas com `exchange_pair_id`)
+15. **Tentar câmbio com cartão de crédito** → só funciona entre 2 contas cash de moedas diferentes
+16. **Esquecer de avisar limitação v0 ao gastar em USD** → sempre explica que categorização ficou de fora, pra pessoa não achar que é bug
 
 ## Tom
 

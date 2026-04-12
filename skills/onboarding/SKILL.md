@@ -60,7 +60,7 @@ Você vai entrevistar a pessoa em **6 blocos**. Avance bloco por bloco. **Não p
 
 Tom: parceiro direto, pergunta uma coisa de cada vez quando precisa de detalhe, agrupa quando dá pra agrupar. Não enche linguiça.
 
-### Bloco 1 — Contas (bancárias e dinheiro vivo)
+### Bloco 1 — Contas (bancárias, dinheiro vivo, USD)
 
 Pergunte:
 
@@ -69,6 +69,7 @@ Pergunte:
 Pra cada banco que ela listar, capture:
 - **Nome do banco** (exatamente como ela falou, não normaliza)
 - **Tipo:** corrente, poupança, digital
+- **Moeda:** BRL (default — não pergunta se for óbvio que é banco BR)
 - **Saldo atual** (opcional, pode ser 0 — ela informa depois se quiser)
 
 Depois, **pergunta sobre dinheiro vivo**:
@@ -83,9 +84,29 @@ Se ela tem múltiplos lugares de dinheiro vivo (carteira + cofre + envelope viag
 
 Default: uma conta única.
 
+**Pergunta sobre conta em dólar:**
+
+> Tu tem alguma conta em **dólar**? Wise, conta nos EUA, carteira de USD, qualquer coisa que guarda valor em USD em vez de reais?
+
+Se sim, pra cada conta USD capture:
+- **Nome** (Wise USD, Conta EUA, Carteira USD, etc.)
+- **Tipo:** cash (todas as contas USD são cash no v0 do FIN, não tem cartão de crédito USD)
+- **Moeda:** USD
+- **Saldo atual em USD** (opcional, pode ajustar depois via `fin_ajustar_saldo_conta`)
+
+**Avise sobre as limitações do v0 USD:**
+
+> Aviso: contas em dólar no FIN, no momento, são "saldo manual". Tu não consegue lançar despesa categorizada em USD ainda (limitação v0). O que dá pra fazer:
+>
+> 1. **Câmbio** USD ↔ BRL (vender ou comprar dólar) — cria 2 transações vinculadas, categoria "Câmbio"
+> 2. **Ajustar saldo** da conta USD a qualquer momento (somar/subtrair dólar)
+> 3. **Gastar em USD** (ex: AliExpress, viagem) entra como ajuste de saldo, sem categoria
+>
+> Quando tu fizer câmbio, eu registro nas duas pontas direitinho. Beleza?
+
 **Confirme o bloco 1** antes de seguir:
 
-> Anotei: [N contas bancárias listadas] + [conta Dinheiro, se aplicável]. Confirma ou ajusta?
+> Anotei: [N contas BRL bancárias] + [conta Dinheiro, se aplicável] + [N contas USD, se aplicável]. Confirma ou ajusta?
 
 ### Bloco 2 — Cartões de crédito
 
@@ -376,12 +397,18 @@ Rode em sequência:
 1. `fin_listar_contas` → captura todas as contas (e cartões, que no FIN são contas tipo crédito)
 2. `fin_listar_categorias` → captura todas as categorias e subcategorias
 
+**Identifica também as contas USD** (campo `currency` ou similar — confira na description da tool). Conta a quantidade.
+
 Mostra um resumo curto:
 
-> Encontrei: [N] contas bancárias, [M] cartões de crédito, [K] categorias com [W] subcategorias no total. Vou popular tua memória local com isso.
+> Encontrei: [N] contas bancárias BRL, [U] contas em USD (se houver), [M] cartões de crédito, [K] categorias com [W] subcategorias no total. Vou popular tua memória local com isso.
+
+Se detectou contas USD, avisa que vai tratar separado:
+
+> Detectei [U] conta(s) em dólar. Pra essas, no v0 do FIN só dá pra usar câmbio (`fin_cambio`) e ajuste de saldo (`fin_ajustar_saldo_conta`). Vou popular o histórico de câmbio na análise.
 
 **Popule `Financeiro/Contas e Cartões.md`** automaticamente:
-- Tabela de contas: nome, tipo, apelidos (vazio inicialmente, vai aprendendo)
+- Tabela de contas: nome, tipo, **moeda (BRL/USD)**, apelidos (vazio inicialmente, vai aprendendo)
 - Tabela de cartões: nome, tipo, limite, dia fechamento (cadastrado), vencimento, conta vinculada (se houver)
 - Coluna "fechamento observado" começa vazia (vai populando na Fase 5)
 
@@ -416,6 +443,8 @@ Mostra progresso:
 ### Fase 4 — Detecção de padrões de estabelecimentos
 
 Agrupa as transações por **descrição/estabelecimento** (normaliza: lowercase, remove caracteres especiais, agrupa variantes próximas tipo "UBER *TRIP" + "UBER *VIAGEM" + "UBER").
+
+**Exclui transações da categoria "Câmbio"** desse agrupamento — câmbio não tem "estabelecimento" no sentido tradicional. Apenas conta as ocorrências pra reportar no resumo final ("Detectei N operações de câmbio no período").
 
 Pra cada estabelecimento, analisa:
 - **Quantas vezes apareceu** no período

@@ -71,6 +71,10 @@ Quando a pessoa fala em linguagem natural (sem usar slash command), você decide
 | Intenção da pessoa | Fluxo |
 |---|---|
 | "lança X reais em Y" / "gastei X" / "recebi X" / "transferi X de A pra B" | `/financeiro:lancar` |
+| "vendi $X e veio R$Y" / "comprei $X por R$Y" / "câmbio" | `/financeiro:lancar` (caso especial: câmbio via `fin_cambio`) |
+| "tô com $X na carteira" / "agora tenho $X" / "achei mais $X" | `/financeiro:lancar` (caso especial: ajuste saldo via `fin_ajustar_saldo_conta`) |
+| "gastei $X no [lugar]" / "paguei $X" (em USD) | `/financeiro:lancar` (caso especial: ajuste saldo subtraindo) |
+| "ajusta o saldo da conta X pra Y" | `/financeiro:lancar` (caso especial: ajuste saldo BRL ou USD) |
 | "processa esse extrato" / colou texto/CSV/OFX de extrato | `/financeiro:extrato` |
 | "processa essa fatura" / "fatura do cartão X" | `/financeiro:fatura` |
 | "concilia conta X" / "tá batendo o saldo?" | `/financeiro:conciliar` |
@@ -115,6 +119,12 @@ Você DEVE ter lido `fin://docs/guia` antes de operar. Pontos críticos:
 - **Pagamento de fatura é separado** (`fin_pagar_fatura`).
 - **Saque de dinheiro vivo é transferência**, não despesa. Lance via `fin_criar_transferencia` da conta bancária pra conta "Dinheiro".
 - **Bills (recorrentes)** têm fluxo próprio. Se detectar gasto recorrente (luz, água, internet, aluguel), ofereça criar como bill.
+- **Contas USD** têm fluxo separado. `fin_criar_despesa` e `fin_criar_receita` são **bloqueados** pra contas USD (BRL only). Pra operar conta USD, use:
+  - **`fin_cambio`** pra comprar ou vender dólar (cria 2 transações vinculadas atomicamente, com `exchange_pair_id`, ambas em categoria "Câmbio". A pessoa informa as **duas quantias manualmente** — o FIN não usa cotação automática)
+  - **`fin_ajustar_saldo_conta`** pra atualizar saldo absoluto de conta cash (BRL ou USD), sem criar transação. Útil pra: definir saldo inicial, registrar gastos em USD ("subtrair $20 do saldo da Wise"), corrigir saldo após conferir extrato. **ATENÇÃO: o valor é o saldo ABSOLUTO, não delta.** Se a conta tinha $400 e a pessoa quer somar $50, passa `45000` (cents), não `5000`.
+  - Câmbio só funciona com **2 contas de moedas diferentes** (uma BRL, outra USD). Não funciona com cartão de crédito.
+  - Cartão de crédito em USD **não é suportado** no v0.
+- **Antes de operar uma conta USD pela primeira vez na sessão**, leia a **seção 10 do `fin://docs/guia`** que explica o modelo conceitual completo de câmbio + ajuste de saldo, com exemplos.
 
 ### Confirmação antes de mutação
 
@@ -225,6 +235,11 @@ Controle de conciliação. Estrutura:
 8. **Inventar regra que a pessoa não validou** → só grava aprendizado depois de confirmação real
 9. **Sugerir nomes de bancos/marcas** ("você usa Nubank?") → pergunta aberta, deixa a pessoa dizer
 10. **Marretar categorias da maioria** → cada pessoa monta as dela no onboarding
+11. **Tentar `fin_criar_despesa` em conta USD** → bloqueado, use `fin_ajustar_saldo_conta` pra subtrair do saldo
+12. **Passar delta em vez de saldo absoluto pro `fin_ajustar_saldo_conta`** → o valor é SEMPRE absoluto, calcule a soma/subtração antes
+13. **Inventar cotação no câmbio** → o FIN não usa cotação automática. A pessoa informa as duas quantias (USD e BRL) manualmente, na operação real. Se ela só souber uma, pergunte a outra.
+14. **Lançar câmbio como 2 transferências** → câmbio é `fin_cambio` (atômico, 1 chamada, 2 transações vinculadas), não 2 transferências separadas
+15. **Tentar câmbio com cartão de crédito** → só funciona entre contas cash de moedas diferentes
 
 ## Resumo do seu trabalho
 
