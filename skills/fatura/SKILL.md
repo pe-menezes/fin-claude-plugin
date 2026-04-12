@@ -9,7 +9,7 @@ description: >
   e parcelamento sem duplicar. Garante idempotência. No fim, oferece pagar
   a fatura via fin_pagar_fatura.
 argument-hint: "[caminho-do-arquivo OU 'colado']"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash
+allowed-tools: Read Write Edit Glob Grep Bash
 ---
 
 ## Quando usar
@@ -32,6 +32,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 2. `~/.fin-plugin/config.json` existe → leia `financeiro_path`
 3. Os 4 arquivos em `Financeiro/` existem
 4. **Leu `fin://docs/guia` nessa sessão** (CRÍTICO pra essa skill — fatura tem várias regras de negócio do FIN)
+5. **Data da Fatura Inicial do cartão está anterior ao período da fatura que vai ser importada.** Isso é um cuidado crítico porque o `fin_criar_conta` seta automaticamente "Data da Fatura Inicial" = data de criação do cartão, e tudo que tiver `tx_date` anterior a isso fica **fora do cálculo do app** (apesar de a API somar). A tool `fin_editar_conta` NÃO expõe esse campo, então não dá pra corrigir via API — a pessoa precisa abrir o cartão no app e ajustar manualmente. **Antes de lançar qualquer fatura histórica**, pergunte pra pessoa: "A 'Data da Fatura Inicial' desse cartão no FIN app está anterior a [data da primeira transação da fatura]? Se for a primeira vez usando o FIN com esse cartão, ela provavelmente está com a data de criação do cartão — abre o app e ajusta pra uma data anterior antes de eu lançar." Se a pessoa confirmar que ajustou (ou que já estava certo), prossiga. Se não, pause e oriente.
 
 ## Diferenças críticas vs `extrato`
 
@@ -139,12 +140,19 @@ Pra cada transação que parece parcelada:
 
 1. **Detectar parcela**: descrição contém "PARC X/Y", "1/10", "(1/12)", etc.
 2. **Identificar parcela 1 vs parcela N**:
-   - **Parcela 1**: a primeira aparição. Esta sim deve ser lançada via `fin_fatura_transacoes` com o campo de parcelamento (N parcelas, valor total, etc.). O FIN cria as outras N-1 automaticamente nas faturas seguintes.
-   - **Parcela N (N > 1)**: já foi gerada pelo FIN quando você lançou a parcela 1. **NÃO LANCE.** Pula.
-3. **Como saber se é parcela 1 ou N?**
-   - Se for "1/12" no nome → parcela 1 (lançar)
-   - Se for "5/12" no nome → parcela 5 (não lançar, já existe)
-   - Se a descrição não diz qual parcela é → busca no FIN se já tem essa parcela cadastrada (`fin_buscar_transacoes` por descrição+cartão+valor parcial). Se já tem, é continuação. Se não tem, é parcela 1 ou compra à vista.
+   - **Parcela 1 (1/N)**: lança via `fin_criar_despesa` com `installments: N` e `amount_cents = valor_da_parcela * N` (valor TOTAL da compra). O FIN cria as N parcelas automaticamente nas faturas seguintes. **NÃO passar `current_installment`** — deixar o default (1) acontecer sozinho.
+   - **Parcela N (N > 1, com histórico de parcela 1 já no FIN)**: já foi gerada pelo FIN quando você lançou a parcela 1. **NÃO LANCE.** Pula.
+   - **Parcela X (X > 1, sem histórico anterior no FIN — compra começou antes do FIN ser usado)**: **dois cenários, regra diferente:**
+     - **Cenário A — dia do parcelamento cai no mês atual ou futuro:** pode usar `installments: N, current_installment: X` com `tx_date` = data da parcela X (não da compra original). O FIN cria só as N-X+1 parcelas a partir daí. Funciona a partir da v2.3.2. Ex: Sephora parcela 5/10 vencendo 19/03/2026 → `installments: 10, current_installment: 5, tx_date: "2026-03-19", amount_cents: valor_total_original`.
+     - **Cenário B — o `tx_date` real da compra original não alinha com o mês atual (parcelas já avançaram e o dia da compra ficou pra trás):** NÃO usar `current_installment`. A rotulação sai errada (Bug #12). **Workaround:** criar N-X+1 despesas avulsas numeradas manualmente "(parcela X/N)", uma por mês, `tx_date` no dia de fechamento de cada fatura correspondente, e `invoice_cycle_end` na primeira pra forçar a fatura atual. Nenhum lançamento usa `installments`. Testado em 2026-04-12 com Ray-Ban e Smiles no Caixa Cartão.
+3. **REGRA — `current_installment`:** funciona a partir da v2.3.2, mas só quando `tx_date` é a data da parcela atual (não da compra original). Se tem desalinhamento de dias, usa o workaround de despesas avulsas do Cenário B acima.
+4. **Como saber se é parcela 1 ou N?**
+   - Se for "1/12" no nome → parcela 1 (lançar sem `current_installment`)
+   - Se for "5/12" no nome → buscar no FIN se a parcela 1 (ou qualquer anterior) já existe:
+     - Se existe → FIN já gerou 5/12, pular.
+     - Se não existe → compra começou antes do FIN. Aplicar a regra dos dois cenários acima (A: `current_installment` a partir da v2.3.2 se `tx_date` alinhado; B: despesas avulsas numeradas se desalinhado).
+   - Se for "N/N" (última parcela) e sem histórico no FIN → lançar como **despesa única à vista** com o valor da parcela. **Atenção:** se a `tx_date` original cai num ciclo antigo do cartão (ex: compra de dezembro cujo 5/5 tá vencendo agora), passar `invoice_cycle_end` = data de fechamento da fatura atual pra forçar a transação a cair na fatura certa. Sem isso, a despesa vai pra um ciclo passado e some da conciliação atual. Mesmo vale pra parcelas "do meio" (X/Y) cuja primeira parcela caia em ciclo muito antigo — a primeira parcela gerada pelo FIN pode cair fora da fatura atual se `tx_date` for antiga.
+   - Se a descrição não diz qual parcela é → busca no FIN. Se já tem, é continuação. Se não tem, assume à vista.
 
 **Mostra na tabela de revisão:**
 ```

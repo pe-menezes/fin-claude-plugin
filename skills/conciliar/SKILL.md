@@ -9,7 +9,7 @@ description: >
   Atualiza Status Conciliação.md no fim. Use quando a pessoa pedir
   "concilia conta X de mês Y" ou "tá batendo o saldo?".
 argument-hint: "[conta/cartão] [período]"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash
+allowed-tools: Read Write Edit Glob Grep Bash
 ---
 
 ## Quando usar

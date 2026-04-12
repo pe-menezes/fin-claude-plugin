@@ -9,7 +9,7 @@ description: >
   ela já usa o FIN há tempo mas é a primeira vez rodando o plugin. Idempotente:
   rodar 2x não duplica nada.
 argument-hint: "[caminho-do-documento-de-setup OU 'retroativo']"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash
+allowed-tools: Read Write Edit Glob Grep Bash
 ---
 
 ## Quando usar
@@ -22,6 +22,27 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 - O MCP do FIN não tá instalado — rode `/financeiro:instalar-fin-mcp` antes
 - A pasta `Financeiro/` da pessoa **já tem `Estabelecimentos.md` populado** com regras (ou seja, o plugin já aprendeu antes nessa máquina) — nesse caso, o trabalho de aprendizado já foi feito, não precisa rodar onboarding
+
+## Convenção: memória operacional mora no vault da pessoa
+
+Tudo que for contexto operacional do FIN (regras aprendidas, estabelecimentos, preferências, conciliação, feedback de bugs, **e ponto de parada de sessões de importação**) deve viver dentro da pasta `Financeiro/` do vault/diretório da pessoa, **NÃO** na memória pessoal do Claude Code (`~/.claude/projects/*/memory/`).
+
+Motivo: o vault é a fonte de verdade do trabalho. Se a pessoa mover de máquina, abrir noutro dia, ou quiser versionar via git, tudo tem que estar junto. A memória do Claude Code fica pra coisas sobre a PESSOA (preferências de comunicação, perfil, hábitos), não sobre o trabalho.
+
+Estrutura recomendada dentro de `Financeiro/`:
+
+```
+Financeiro/
+├── Contas e Cartões.md       ← fonte de verdade das contas/cartões
+├── Preferências.md           ← decisões não-óbvias, regras de vida
+├── Estabelecimentos.md       ← regras aprendidas nome → categoria
+├── Status Conciliação.md     ← o que já foi conferido com extrato/fatura
+├── FIN - Feedback e Bugs.md  ← bugs, inconsistências e sugestões pro FIN
+└── Sessões/                  ← ponto de parada de cada sessão longa
+    └── YYYY-MM-DD - <resumo>.md
+```
+
+Quando uma sessão de importação é longa e vai precisar ser retomada depois (ex: precisa reiniciar o Claude Code pra atualizar MCP, pessoa vai dormir no meio, bug do FIN que só o dev pode corrigir), **crie um arquivo em `Financeiro/Sessões/`** com: o que já foi feito, o TODO pendente com IDs necessários pra retomar (UUIDs de contas, hashes de extrato, etc), e os aprendizados importantes que não podem se perder. Na próxima sessão, ao ler `Financeiro/`, o plugin vai encontrar esse arquivo e retomar de onde parou.
 
 ## Pré-requisitos (verificar ANTES de começar)
 
@@ -610,3 +631,4 @@ Esse aviso vai como pendência no documento de setup também (seção `## Pendê
 6. **Tentar criar 3 níveis de categoria** → o FIN só tem 2, sempre achata e explica
 7. **Pular o aviso de variação de fechamento** → a pessoa precisa saber que fechamento varia
 8. **Lançar transações no onboarding** → onboarding só cria estrutura (contas, cartões, categorias). Lançamentos vêm depois.
+9. **Data da Fatura Inicial em cartões (v2.3.0+)** → na v2.3.0+, cartões criados via `fin_criar_conta` nascem **sem cutoff** por default — não precisa mais do workaround manual. Se a pessoa quiser importar histórico com saldo preexistente, use `initial_invoice_date` e `initial_invoice_amount_cents` em `fin_criar_conta`, ou `fin_editar_conta` pra corrigir depois. A partir da v2.3.2, passar `initial_invoice_date: null` em `fin_editar_conta` funciona end-to-end (migration do backend aplicada) — use `null` pra remover cutoff de cartões antigos criados em versões < v2.3.0.

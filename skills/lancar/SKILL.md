@@ -8,7 +8,7 @@ description: >
   trata dinheiro vivo, saque, câmbio USD/BRL e ajuste de saldo corretamente,
   sempre confirma em uma linha antes de criar. Aprende e atualiza memória.
 argument-hint: "[descrição da transação em linguagem natural]"
-allowed-tools: Read, Write, Edit, Glob, Grep
+allowed-tools: Read Write Edit Glob Grep
 ---
 
 ## Quando usar
@@ -114,7 +114,7 @@ Se ambíguo, pergunta:
 1. **`fin_criar_despesa` e `fin_criar_receita` são bloqueados pra contas USD** (BRL only). Se você tentar, vai falhar com mensagem clara apontando pra tool certa. **Nunca tente lançar despesa/receita categorizada em USD.**
 2. **Câmbio é uma operação atômica** via `fin_cambio`. Cria 2 transações vinculadas (uma despesa na origem, uma receita no destino), ambas com categoria "Câmbio" e um `exchange_pair_id` compartilhado. Se uma falhar, a outra é desfeita.
 3. **O FIN não usa cotação automática.** A pessoa informa as **duas quantias manualmente** (USD e BRL), porque a taxa real varia (banco, spread, operação manual). Você nunca calcula cotação.
-4. **`fin_ajustar_saldo_conta` recebe saldo ABSOLUTO, não delta.** Se a conta tinha $400 e a pessoa quer somar $50, você precisa **ler o saldo atual primeiro** (`fin_saldos`) e passar `$450`, não `$50`.
+4. **`fin_ajustar_saldo_conta` sobrescreve o `initial_balance` da conta — NÃO o saldo exibido.** Essa é a armadilha mais cara da API. O FIN calcula `saldo_exibido = initial_balance + soma(receitas) − soma(despesas) − soma(transfers_out) + soma(transfers_in)`. Se você passar "o saldo atual que a pessoa quer ver", o FIN vai recalcular por cima e o valor vai ficar errado. **Regra correta** (vale pra BRL e USD): pra fazer o saldo exibido chegar num valor desejado, use `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`. Na prática: lê `fin_saldos` pra descobrir `saldo_exibido_atual`, calcula a diferença pro desejado, soma essa diferença no initial_balance via a tool. Ver **Caso B/C** abaixo pra exemplos passo-a-passo. **Exceção:** conta recém-criada sem nenhuma transação ainda — aí `initial_balance` = saldo exibido e você pode passar o saldo desejado direto.
 5. **Câmbio só funciona entre 2 contas cash de moedas diferentes** (uma BRL, outra USD). Cartão de crédito não é suportado.
 6. **Cartão de crédito em USD não é suportado** no v0.
 
@@ -157,52 +157,69 @@ Se ambíguo, pergunta:
 
 #### Caso B — Ajustar saldo manualmente (USD ou BRL)
 
+**ATENÇÃO (armadilha):** `fin_ajustar_saldo_conta` sobrescreve o `initial_balance`, não o saldo exibido. Se a conta tem transações importadas, **não** passe o "saldo atual desejado" direto — o FIN recalcula por cima e o valor fica errado. Use a fórmula do fluxo abaixo.
+
 **Padrões de fala:**
-- "Tô com $487 na carteira agora" → ajuste pra valor absoluto $487
+- "Tô com $487 na carteira agora" → ajuste pra valor exibido final = $487
 - "Agora tenho $1200 na Wise" → ajuste pra $1200
-- "Achei mais $50, total tá em $537" → ajuste pra $537 (a pessoa já fez a conta)
-- "Achei mais $50 na carteira" (sem dizer total) → **precisa ler saldo atual primeiro**, somar 50, passar como absoluto
-- "Ajusta o Caixa pra 1234,56" → ajuste pra R$1234,56 absoluto
+- "Achei mais $50, total tá em $537" → ajuste pra $537
+- "Achei mais $50 na carteira" (sem dizer total) → precisa ler saldo exibido atual, somar 50, ajustar pro resultado
+- "Ajusta o Caixa pra 1234,56" → ajuste pra R$1234,56
 - "O saldo do Itaú tá errado, tá em R$2000 e devia ser R$2150" → ajuste pra R$2150
 
-**Fluxo:**
-1. Identifica a conta (lê `Contas e Cartões.md`)
-2. Identifica se é **valor absoluto** (a pessoa já fez a conta) ou **delta** (tipo "achei mais $50"):
-   - Absoluto: tu já tem o valor final
-   - Delta: **chama `fin_saldos` ou `fin_listar_contas` pra pegar o saldo atual**, soma/subtrai o delta, e usa o resultado como absoluto
-3. Confirma em uma linha mostrando **antes e depois**:
+**Fluxo (vale pra BRL e USD):**
+1. Identifica a conta (lê `Contas e Cartões.md`).
+2. Lê `fin_saldos` pra descobrir `saldo_exibido_atual` e `fin_listar_contas` pra descobrir `initial_balance_atual` (campo `initial_balance_cents`).
+3. Calcula:
+   ```
+   diferenca = saldo_desejado − saldo_exibido_atual
+   initial_balance_novo = initial_balance_atual + diferenca
+   ```
+4. Confirma em uma linha mostrando **antes e depois do saldo exibido**:
    > Ajustar saldo: Wise USD de $437 → $487 (somou $50). Confirma?
-4. Chama `fin_ajustar_saldo_conta`:
+5. Chama `fin_ajustar_saldo_conta` passando **`initial_balance_novo`** como `amount_cents`:
    ```
    {
      "account_name": "Wise USD",
-     "amount_cents": 48700
+     "amount_cents": <initial_balance_novo_em_centavos>
    }
    ```
-5. Sucesso: avisa o novo saldo.
+6. **Valida**: re-chama `fin_saldos` e confere que o saldo exibido agora bate com o desejado. Se não bater, tem transação faltando/sobrando — investiga antes de seguir.
+7. Sucesso: avisa o novo saldo exibido.
+
+**Exemplo real (Lou, C6 BRL, 2026-04-12):**
+- Saldo exibido atual: −R$ 4.641,67 (−464167)
+- Initial balance atual: R$ 3.673,79 (367379) — valor errado deixado por ajuste anterior
+- Saldo desejado: R$ 3.673,79 (367379)
+- diferenca = 367379 − (−464167) = 831546
+- initial_balance_novo = 367379 + 831546 = 1198925 (R$ 11.989,25)
+- Passa `amount_cents: 1198925` → saldo exibido vira R$ 3.673,79 ✅
 
 **Caso especial dentro do ajuste de saldo: gasto em USD (sem categorização)**
 
 > "Gastei $20 no AliExpress"
 
 No v0 do FIN, **não dá pra lançar despesa categorizada em USD**. O jeito recomendado:
-1. Lê o saldo atual da conta USD (`fin_saldos`)
-2. Subtrai $20 do saldo
-3. Chama `fin_ajustar_saldo_conta` passando o novo saldo absoluto
-4. **Avisa a pessoa explicitamente que a categorização ficou de fora** (limitação do v0):
+1. Segue o fluxo acima com `saldo_desejado = saldo_exibido_atual − 20 USD`.
+2. **Avisa a pessoa explicitamente que a categorização ficou de fora** (limitação do v0):
    > Ajustei: Wise USD de $487 → $467 (gastou $20 no AliExpress). Não dá pra categorizar gasto em USD ainda (limitação do v0), mas o saldo tá certo. Quando tu fizer câmbio depois, a saída de dólar fica registrada na categoria Câmbio. Beleza?
 
 #### Caso C — Ajustar saldo BRL pra correção
 
-Mesma lógica do Caso B, mas conta BRL. Útil pra corrigir saldo após conferir extrato.
+Mesma lógica do Caso B (fluxo completo lá: ler saldo exibido + initial_balance, calcular diferença, somar no initial_balance). Útil pra corrigir saldo após conferir extrato ou reconciliar depois de importar lote.
 
 > "Ajusta o saldo do Caixa pra R$1234,56"
 
-1. Confirma:
+1. Lê `fin_saldos` e `fin_listar_contas` pra pegar `saldo_exibido_atual` e `initial_balance_atual`.
+2. Calcula `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`.
+3. Confirma em uma linha (mostrando saldo exibido antes/depois, não o initial_balance):
    > Ajustar saldo: Caixa de R$1100 → R$1234,56. Confirma?
-2. Chama `fin_ajustar_saldo_conta`
+4. Chama `fin_ajustar_saldo_conta` com `amount_cents = initial_balance_novo`.
+5. Re-checa com `fin_saldos` que o exibido ficou certo.
 
-**Atenção:** ajuste de saldo BRL **não cria transação**, então não aparece em relatórios mensais como movimentação. É um ajuste contábil. Se a pessoa quiser que apareça como receita/despesa categorizada, oriente a usar `fin_criar_receita`/`fin_criar_despesa` em vez disso.
+**Atenção 1:** ajuste de saldo BRL **não cria transação**, então não aparece em relatórios mensais como movimentação. É um ajuste contábil. Se a pessoa quiser que apareça como receita/despesa categorizada, oriente a usar `fin_criar_receita`/`fin_criar_despesa` em vez disso.
+
+**Atenção 2:** se o saldo exibido não bater com o desejado depois do ajuste, **não tenta de novo com outro valor**. Isso significa que tem transação faltando/sobrando no FIN. Investiga o extrato original antes.
 
 #### Quando pedir leitura prévia de saldo
 
@@ -364,7 +381,7 @@ Se ela disser "qualquer lugar, sei lá", aceita "Almoço" como descrição gené
 
 1. **Lançar saque como despesa** → saque é transferência banco → Dinheiro
 2. **Lançar estorno como receita** → estorno é despesa com `reversal_of_id`
-3. **Criar parcelas manualmente** → o FIN cria automático, use o campo de parcelamento
+3. **Criar parcelas manualmente** → o FIN cria automático via `installments`. **Exceção (parcela X/N de compra antiga, X > 1):** a partir da v2.3.2 dá pra usar `current_installment` **só se `tx_date` for a data da parcela atual** (não da compra original). Se `tx_date` é da compra original e os dias não alinham com o ciclo atual, o FIN rotula errado (Bug #12) — aí lança como **despesas avulsas numeradas manualmente** `"Nome (parcela X/N)"`, uma por mês, com `invoice_cycle_end` na primeira pra forçar a fatura atual. Ver `skills/fatura/SKILL.md` pra regra completa dos 2 cenários.
 4. **Aplicar regra aprendida sem mostrar** → sempre diz "apliquei tua regra: X → Y"
 5. **Atualizar regra existente sem confirmar** → se a pessoa categorizou diferente dessa vez, pergunta se é exceção ou nova regra
 6. **Aprender estabelecimento depois de uma única ocorrência sem confirmação** → sempre confirma a categoria antes de gravar
@@ -373,7 +390,7 @@ Se ela disser "qualquer lugar, sei lá", aceita "Almoço" como descrição gené
 9. **Pedir confirmação com 5 linhas de texto** → uma linha basta
 10. **Esquecer de atualizar `Estabelecimentos.md`** → toda transação com estabelecimento novo gera linha nova
 11. **Tentar `fin_criar_despesa` em conta USD** → bloqueado. Use `fin_ajustar_saldo_conta` pra subtrair do saldo (sem categorização, limitação v0)
-12. **Passar delta em vez de absoluto pro `fin_ajustar_saldo_conta`** → o valor é SEMPRE absoluto. Pra delta, lê o saldo atual primeiro e calcula
+12. **Passar "o saldo que a pessoa quer ver" direto pro `fin_ajustar_saldo_conta`** → a tool sobrescreve o `initial_balance`, não o saldo exibido. Se a conta tem transações, o FIN vai recalcular por cima e o valor fica errado. Use a fórmula `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`. Ver **Caso B/C** nesta skill pra fluxo completo.
 13. **Inventar cotação no câmbio** → o FIN não usa cotação automática. Se a pessoa só falou uma das duas quantias, pergunta a outra
 14. **Lançar câmbio como 2 transferências separadas** → câmbio é `fin_cambio` (atômico, 1 chamada, 2 transações vinculadas com `exchange_pair_id`)
 15. **Tentar câmbio com cartão de crédito** → só funciona entre 2 contas cash de moedas diferentes

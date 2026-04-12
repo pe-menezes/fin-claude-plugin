@@ -7,6 +7,22 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-12
+
+### Corrigido
+- **Slash commands não apareciam no autocomplete** (`/financeiro:` não listava nada). Causa: o frontmatter das 6 skills declarava `allowed-tools` com separador por vírgula (`Read, Write, Edit, Glob, Grep, Bash`), formato não suportado pelo parser do Claude Code. A doc oficial exige **separador por espaço** (`Read Write Edit Glob Grep Bash`) ou lista YAML. Skills com `allowed-tools` inválido são silenciosamente descartadas do registro de slash commands. Corrigido em todas as 6 skills.
+- **`userConfig.fin_api_key`** no `plugin.json` faltava os campos `type: "string"` e `title: "FIN API Key"`, que são esperados pelo schema de userConfig do Claude Code. Adicionados.
+
+### Mudado
+- **`skills/lancar`**: adicionada seção sobre a armadilha do `fin_ajustar_saldo_conta` sobrescrever `initial_balance` em vez do saldo exibido. Fórmula correta: `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`. Caso B e Caso C reescritos com exemplo real.
+- **`skills/fatura`**: clarificações sobre (a) Data da Fatura Inicial do cartão, (b) diferença parcela 1 vs N, (c) uso de `current_installment` a partir da v2.3.2 do fin-app-mcp com regra dos dois cenários (alinhado vs desalinhado).
+- **`skills/extrato`**: novo passo final obrigatório "Reconciliação de saldo pós-import", explicando como calcular `initial_balance` retroativamente pra fechar o saldo com o extrato.
+- **`skills/onboarding`**: nova convenção "memória operacional mora no vault da pessoa" (todo o contexto do FIN vive em `Financeiro/` do vault, não em `~/.claude/projects/*/memory/`). Explica estrutura recomendada de `Sessões/`.
+
+### Bumps
+- `plugin.json`: 0.2.0 → 0.2.1
+- `marketplace.json`: 0.2.0 → 0.2.1
+
 ## [0.2.0] - TBD
 
 ### Adicionado

@@ -8,7 +8,7 @@ description: >
   atualiza memória + Status Conciliação.md. Use quando a pessoa colar/anexar
   o extrato de uma conta corrente, poupança ou conta digital.
 argument-hint: "[caminho-do-arquivo OU 'colado']"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash
+allowed-tools: Read Write Edit Glob Grep Bash
 ---
 
 ## Quando usar
@@ -269,11 +269,33 @@ Se a pessoa deu uma regra explícita ("loja nova SA é sempre roupa"), adiciona 
 - Status Conciliação atualizado.
 ```
 
+## Reconciliação de saldo pós-import (passo final obrigatório)
+
+Depois de importar todas as transações do extrato em lote, **sempre** reconcilia o saldo da conta no FIN com o saldo real do app bancário. Isso é o que fecha o lote — se pular, o saldo fica à deriva e toda sessão futura vai ter que lidar com número errado.
+
+**Fluxo:**
+1. Pergunta pra pessoa: "Qual é o saldo atual do app do [banco] agora? (print da tela inicial ajuda)". Se o extrato tinha linha de "saldo final", usa o valor dele como referência inicial mas **confirma com a pessoa** porque extrato OFX/CSV pode ter data de corte diferente de "agora".
+2. Chama `fin_saldos` e `fin_listar_contas` pra pegar `saldo_exibido_atual` e `initial_balance_atual`.
+3. Calcula a diferença: `diferenca = saldo_desejado − saldo_exibido_atual`.
+4. Se `diferenca == 0` → saldo já bate, nada a fazer. Avisa "✓ Saldo bateu certinho, R$ X,XX".
+5. Se `diferenca != 0`:
+   - **Primeiro investiga**: a diferença pode indicar transação faltando ou sobrando. Pergunta: "tá dando R$ X a mais/menos — falta lançar alguma coisa desde o último movimento do extrato, ou tem alguma transação duplicada?".
+   - Se a pessoa confirmar que o saldo inicial do período do extrato estava errado no FIN (caso típico: primeira importação de uma conta), aplica o ajuste retroativo no `initial_balance`:
+     ```
+     initial_balance_novo = initial_balance_atual + diferenca
+     ```
+     Chama `fin_ajustar_saldo_conta` com `amount_cents: initial_balance_novo`.
+   - Re-chama `fin_saldos` pra confirmar que o exibido agora bate.
+
+**Armadilha crítica:** `fin_ajustar_saldo_conta` **sobrescreve o `initial_balance`**, não o saldo exibido. Se passar o saldo desejado direto, o FIN recalcula por cima e o valor fica errado. **Sempre use a fórmula acima.** Ver `skills/lancar/SKILL.md` → Caso B/C pra fluxo detalhado.
+
+**Atualizar `Status Conciliação.md`:** registra que o saldo foi reconciliado em DD/MM/AAAA e em qual valor, pra sessões futuras saberem o ponto de partida.
+
 ## Casos especiais
 
 ### Extrato com saldo inicial/final
 
-Algumas linhas do extrato são "saldo anterior" e "saldo final". **Ignora** essas linhas, não vira transação.
+Algumas linhas do extrato são "saldo anterior" e "saldo final". **Ignora como transação** (não vira `fin_criar_despesa`/`fin_criar_receita`), mas **guarda os valores** — o "saldo final" vai servir de referência inicial pro passo de **Reconciliação de saldo pós-import** acima.
 
 ### Extrato com tarifas e impostos
 

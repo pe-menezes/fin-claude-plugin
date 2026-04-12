@@ -8,7 +8,7 @@ description: >
   chave manualmente. Guia: gerar API key, editar config (Desktop) ou rodar
   claude mcp add (Code), troubleshooting de erros comuns.
 argument-hint: "(sem argumentos)"
-allowed-tools: Read, Write, Bash
+allowed-tools: Read Write Bash
 ---
 
 ## Como o plugin instala o MCP automaticamente (v0.2.0+)
