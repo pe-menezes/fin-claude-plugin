@@ -33,21 +33,62 @@ Os arquivos são markdown puro (sem wikilinks, sem tags de Obsidian), então fun
 
 ### Pré-requisitos
 
-1. Conta no [FIN App](https://fin-app-wine.vercel.app)
-2. Claude Code ou Claude Desktop instalado
-3. Node.js 18+ (pro `npx -y fin-app-mcp`)
+1. **Conta no [FIN App](https://fin-app-wine.vercel.app)** (cria em 1 minuto)
+2. **API key do FIN** gerada em https://fin-app-wine.vercel.app/settings/api-keys (formato `fin_live_xxx...`)
+3. **Claude Code** ou **Claude Desktop** instalado
+4. **Node.js 18+** (necessário pro `npx -y fin-app-mcp` que o plugin instala automaticamente)
 
-### Adicionar o marketplace e instalar
+### Instalação em 3 passos
 
+A partir da v0.2.0, o plugin **instala o MCP do FIN automaticamente** via `.mcp.json` declarado no próprio plugin. Tu não precisa editar `claude_desktop_config.json` nem rodar `claude mcp add`. Só copia, cola, fornece a chave.
+
+**Passo 1 — Adicionar o marketplace:**
 ```
 /plugin marketplace add github.com/pe-menezes/fin-claude-plugin
+```
+
+**Passo 2 — Instalar o plugin:**
+```
 /plugin install financeiro@fin-claude-plugin-marketplace
 ```
 
-Na primeira execução, o plugin vai:
-1. Perguntar onde guardar a pasta `Financeiro/`
-2. Verificar se o MCP do FIN tá instalado (e ajudar a instalar se não)
-3. Oferecer rodar o onboarding
+**Passo 3 — Colar a API key quando perguntado.**
+
+No momento da instalação, o Claude vai pedir o valor de `fin_api_key` (configurado como `sensitive`, então fica guardado no keychain do sistema, não no histórico da conversa). Cola a chave no formato `fin_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` e confirma.
+
+**Pronto.** O MCP `fin-app` é registrado automaticamente. Reinicia o Claude se ele pedir, e dá `/financeiro:onboarding`.
+
+### Primeira execução
+
+Na primeira vez, o plugin vai:
+1. Perguntar **onde guardar a pasta `Financeiro/`** (vault Obsidian, pasta normal, ou caminho custom)
+2. **Verificar se o MCP do FIN tá funcionando** (chamada `fin_listar_contas`)
+3. **Detectar o estado do FIN** e disparar o modo certo do onboarding:
+   - FIN vazio → Modo A (questionário guiado em 6 blocos)
+   - FIN com dados → Modo C (aprendizado retroativo do que já existe)
+   - Tu tem documento de setup → Modo B (importação)
+
+### Atualizar a chave depois (revogou, perdeu, vai mudar)
+
+Reinstala o plugin pra triggar o prompt de userConfig de novo:
+```
+/plugin reinstall financeiro@fin-claude-plugin-marketplace
+```
+
+Ou desinstala e reinstala:
+```
+/plugin uninstall financeiro
+/plugin install financeiro@fin-claude-plugin-marketplace
+```
+
+### Se a instalação automática falhar
+
+Em caso de bug (formato `.mcp.json` não suportado por alguma versão do Claude, ou prompt de `userConfig` não apareceu), tem a skill de fallback:
+```
+/financeiro:instalar-fin-mcp
+```
+
+Ela guia passo a passo a configuração manual via `claude mcp add` (Code) ou edição do `claude_desktop_config.json` (Desktop).
 
 ## Documentação
 

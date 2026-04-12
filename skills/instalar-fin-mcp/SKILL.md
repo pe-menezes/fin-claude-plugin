@@ -1,25 +1,41 @@
 ---
 name: instalar-fin-mcp
 description: >
-  Instala e configura o MCP server do FIN App no Claude Code ou Claude Desktop.
-  Use quando o plugin financeiro detectar que as tools fin_* não estão
-  disponíveis, ou quando a pessoa pedir explicitamente pra configurar o FIN.
-  Guia passo a passo: gerar API key no FIN App, montar comando de instalação
-  ou editar config manualmente, reiniciar Claude e verificar.
+  Skill de FALLBACK pra configurar o MCP server do FIN App. A partir da
+  v0.2.0, o plugin já declara o fin-app-mcp via .mcp.json e pede a API key
+  automaticamente no install (userConfig sensitive). Essa skill só roda se
+  o método automático falhar OU se a pessoa precisar atualizar/revogar a
+  chave manualmente. Guia: gerar API key, editar config (Desktop) ou rodar
+  claude mcp add (Code), troubleshooting de erros comuns.
 argument-hint: "(sem argumentos)"
 allowed-tools: Read, Write, Bash
 ---
 
+## Como o plugin instala o MCP automaticamente (v0.2.0+)
+
+A partir da versão 0.2.0, o plugin **já declara** o `fin-app-mcp` via dois arquivos:
+
+1. **`.mcp.json`** na raiz do plugin: declara `fin-app` com `command: npx`, `args: ["-y", "fin-app-mcp"]`, e env vars `FIN_BASE_URL` (fixa) + `FIN_API_KEY` (referenciando `${user_config.fin_api_key}`)
+2. **`userConfig.fin_api_key`** no `plugin.json` com `sensitive: true`
+
+**Resultado:** quando a pessoa instala o plugin via `/plugin install`, o Claude pede a API key na hora, ela cola, e pronto. O MCP `fin-app` é registrado automaticamente. Sem editar `claude_desktop_config.json`. Sem `claude mcp add`.
+
+**Esta skill (`/financeiro:instalar-fin-mcp`) só é necessária se:**
+- O método automático falhou por algum bug do Claude (issue #16143 do `mcpServers` inline foi corrigido com `.mcp.json` separado, mas pode haver outros)
+- A pessoa pulou o prompt de userConfig sem colar a chave
+- A chave precisa ser revogada/regerada
+- A pessoa quer entender o que tá acontecendo "por baixo dos panos"
+
 ## Quando usar
 
-- O agente principal tentou chamar uma tool `fin_*` e ela não existe
-- A pessoa falou "instala o FIN", "configura o MCP", "como conecto o FIN"
-- Erro `Missing env: FIN_BASE_URL` ou `unauthorized` ao chamar tool do FIN
+- **Detecção automática pelo agente principal:** o agente tentou `fin_listar_contas`, deu erro, e suspeita que o método automático não funcionou
+- **Pedido explícito:** "instala o FIN manualmente", "como configuro o MCP do FIN", "tô com erro de auth no FIN"
+- Erros: `Missing env: FIN_BASE_URL`, `unauthorized`, `auth_lookup_failed`, ou tool `fin_*` não disponível
 
 ## Quando NÃO usar
 
-- O MCP do FIN já tá instalado e funcionando (faça `fin_listar_contas` pra confirmar antes de rodar essa skill)
-- A pessoa não tem conta no FIN App ainda — nesse caso, mande criar primeiro em https://fin-app-wine.vercel.app
+- O método automático funcionou (`fin_listar_contas` retorna OK) → pular essa skill
+- A pessoa não tem conta no FIN App ainda → manda criar primeiro em https://fin-app-wine.vercel.app
 
 ## Pré-requisitos
 

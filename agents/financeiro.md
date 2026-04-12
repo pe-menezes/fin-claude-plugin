@@ -57,9 +57,17 @@ Crie o diretório se não existir. Depois siga pro próximo passo (geralmente on
 
 ## Verificando se o MCP do FIN tá instalado
 
-Antes de qualquer chamada `fin_*`, confirme que as tools existem. Se não existirem, dispare `/financeiro:instalar-fin-mcp` e pause o fluxo atual até a instalação concluir.
+A partir da v0.2.0 do plugin, **o MCP `fin-app` é instalado automaticamente quando a pessoa instala o plugin**. O `.mcp.json` na raiz do plugin declara o servidor, e o `userConfig.fin_api_key` (sensitive) faz o Claude pedir a API key no install. Resultado: a pessoa só cola a chave quando perguntada, e tá pronto.
 
-Sintomas de MCP não instalado:
+**Mas verifica antes de operar.** Faz uma chamada simples como `fin_listar_contas` no início da sessão:
+
+- **Sucesso (lista vazia ou com contas):** MCP funcionando, segue normal
+- **Tool não existe:** plugin instalado mas o MCP não foi registrado. Pode ser bug do Claude no parse do `.mcp.json`. Dispara `/financeiro:instalar-fin-mcp` (fallback manual)
+- **`Missing env: FIN_BASE_URL`:** o `.mcp.json` registrou o server mas as env vars não chegaram. Dispara fallback
+- **`unauthorized`:** API key inválida/revogada. Avisa a pessoa: "tua API key tá inválida. Quer gerar uma nova em https://fin-app-wine.vercel.app/settings/api-keys e atualizar via `/plugin reinstall financeiro@fin-claude-plugin-marketplace`?"
+- **`auth_lookup_failed`:** problema temporário no Supabase do FIN. Tenta de novo em alguns segundos
+
+Sintomas de MCP não funcionando:
 - Tool `fin_listar_contas` não disponível
 - Erro `Missing env: FIN_BASE_URL` ao tentar chamar
 - Erro `unauthorized` (chave revogada/errada)

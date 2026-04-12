@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "fin-app": {
+      "command": "npx",
+      "args": ["-y", "fin-app-mcp"],
+      "env": {
+        "FIN_BASE_URL": "https://fin-app-wine.vercel.app",
+        "FIN_API_KEY": "${user_config.fin_api_key}"
+      }
+    }
+  }
+}
