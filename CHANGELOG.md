@@ -7,30 +7,24 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.2.2] - 2026-04-12
+## [0.3.0] - 2026-04-12
+
+Minor release — primeira release em que o plugin é **efetivamente instalável e funcional** no Claude Code v2.1+ (desktop e CLI). Consolida as correções que antes existiam em branches de trabalho 0.2.1 e 0.2.2 e traz melhorias de skills aprendidas em uso real com a usuária piloto.
 
 ### Corrigido
 - **Plugin instalava mas ficava com erro `Missing required user configuration value: fin_api_key`**. Causa: no `userConfig.fin_api_key` do `plugin.json`, faltava o campo `required: true`. Sem ele, o Claude Code v2.1+ considerava a config opcional e **nunca disparava o prompt de input da API key** durante a instalação. O `.mcp.json` então referenciava `${user_config.fin_api_key}` como string vazia e o MCP server do FIN não conseguia subir. Adicionado `required: true` — agora o Claude Code pede a API key no install como esperado.
-
-### Bumps
-- `plugin.json`: 0.2.1 → 0.2.2
-- `marketplace.json`: 0.2.1 → 0.2.2
-
-## [0.2.1] - 2026-04-12
-
-### Corrigido
-- **Slash commands não apareciam no autocomplete** (`/financeiro:` não listava nada). Causa: o frontmatter das 6 skills declarava `allowed-tools` com separador por vírgula (`Read, Write, Edit, Glob, Grep, Bash`), formato não suportado pelo parser do Claude Code. A doc oficial exige **separador por espaço** (`Read Write Edit Glob Grep Bash`) ou lista YAML. Skills com `allowed-tools` inválido são silenciosamente descartadas do registro de slash commands. Corrigido em todas as 6 skills.
+- **Slash commands não apareciam no autocomplete** (`/financeiro:` não listava nada). Causa: o frontmatter das 6 skills declarava `allowed-tools` com separador por vírgula (`Read, Write, Edit, Glob, Grep, Bash`), formato não suportado pelo parser do Claude Code. A doc oficial exige **separador por espaço** (`Read Write Edit Glob Grep Bash`) ou lista YAML. Skills com `allowed-tools` inválido eram silenciosamente descartadas do registro de slash commands. Corrigido em todas as 6 skills.
 - **`userConfig.fin_api_key`** no `plugin.json` faltava os campos `type: "string"` e `title: "FIN API Key"`, que são esperados pelo schema de userConfig do Claude Code. Adicionados.
 
 ### Mudado
 - **`skills/lancar`**: adicionada seção sobre a armadilha do `fin_ajustar_saldo_conta` sobrescrever `initial_balance` em vez do saldo exibido. Fórmula correta: `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`. Caso B e Caso C reescritos com exemplo real.
-- **`skills/fatura`**: clarificações sobre (a) Data da Fatura Inicial do cartão, (b) diferença parcela 1 vs N, (c) uso de `current_installment` a partir da v2.3.2 do fin-app-mcp com regra dos dois cenários (alinhado vs desalinhado).
+- **`skills/fatura`**: clarificações sobre (a) Data da Fatura Inicial do cartão, (b) diferença parcela 1 vs N, (c) uso de `current_installment` a partir da v2.3.2 do `fin-app-mcp` com regra dos dois cenários (alinhado vs desalinhado).
 - **`skills/extrato`**: novo passo final obrigatório "Reconciliação de saldo pós-import", explicando como calcular `initial_balance` retroativamente pra fechar o saldo com o extrato.
 - **`skills/onboarding`**: nova convenção "memória operacional mora no vault da pessoa" (todo o contexto do FIN vive em `Financeiro/` do vault, não em `~/.claude/projects/*/memory/`). Explica estrutura recomendada de `Sessões/`.
 
 ### Bumps
-- `plugin.json`: 0.2.0 → 0.2.1
-- `marketplace.json`: 0.2.0 → 0.2.1
+- `plugin.json`: 0.2.0 → 0.3.0
+- `marketplace.json`: 0.2.0 → 0.3.0
 
 ## [0.2.0] - TBD
 

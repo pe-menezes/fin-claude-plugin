@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Marketplace do FIN Claude Plugin",
-    "version": "0.2.2"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "financeiro",
       "source": "./",
       "description": "Gestão financeira pessoal agnóstica via Claude. Onboarding guiado, lançamento avulso e em lote, conciliação e aprendizado contínuo. Backend: FIN App MCP (instalado automaticamente).",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "author": {
         "name": "Pedro Menezes"
       },
