@@ -42,7 +42,61 @@ A partir da versão 0.2.0, o plugin **já declara** o `fin-app-mcp` via dois arq
 Antes de tudo, confirme com a pessoa:
 
 1. **Tem conta no FIN App?** Se não, peça pra criar em https://fin-app-wine.vercel.app e pause aqui.
-2. **Tem Node.js 18+ instalado?** Rode `node --version` no terminal pra confirmar. Se não tiver, peça pra instalar antes.
+2. **Tem Node.js 18+ instalado?** Verificação obrigatória — ver Passo 0 abaixo.
+
+## Passo 0 — Verificação de Node.js (OBRIGATÓRIO)
+
+O `fin-app-mcp` roda via `npx -y fin-app-mcp`, que precisa de **Node.js 18 ou superior**. Sem Node, nada funciona.
+
+Roda no terminal (via `Bash`):
+
+```bash
+node --version
+```
+
+**Se retornar `v18.x.x` ou maior:** OK, segue pro Passo 1.
+
+**Se retornar versão menor que 18:**
+
+> Tu tem Node {versão} mas precisa de 18 ou maior. Atualiza assim:
+>
+> 1. Baixa a versão LTS em https://nodejs.org
+> 2. Roda o instalador (next-next-finish)
+> 3. Reinicia o terminal (e o Claude se for Desktop)
+> 4. Roda `node --version` de novo pra confirmar
+> 5. Volta aqui e me diz "atualizei"
+
+**Se retornar `command not found` / `'node' não é reconhecido como comando` / similar:**
+
+> Node.js não tá instalado no teu sistema. O `fin-app-mcp` precisa dele pra rodar.
+>
+> **Como instalar (rápido, ~5 min):**
+>
+> **Windows:**
+> 1. Vai em https://nodejs.org
+> 2. Clica no botão "LTS" (versão recomendada)
+> 3. Baixa o `.msi` de Windows Installer
+> 4. Abre o instalador, clica next-next-finish (deixa as opções padrão)
+> 5. **Reinicia o Claude completamente** (fecha tudo, incluindo a bandeja do sistema)
+> 6. Volta aqui e me diz "instalei o Node"
+>
+> **macOS:**
+> 1. Opção 1 (sem terminal): vai em https://nodejs.org, baixa o `.pkg` LTS, instala
+> 2. Opção 2 (com Homebrew): no Terminal, roda `brew install node`
+> 3. Reinicia o Claude
+> 4. Me diz "instalei"
+>
+> **Linux:**
+> 1. Recomendo instalar via `nvm`: https://github.com/nvm-sh/nvm
+> 2. Ou use o gerenciador de pacotes da tua distro (`apt`, `dnf`, etc.) pra instalar `nodejs >=18`
+> 3. Reinicia o Claude
+> 4. Me diz "instalei"
+>
+> Não consigo instalar Node sozinho — é software do sistema operacional, precisa privilégio de admin que eu não tenho.
+
+Pausa aqui. **Não segue pro Passo 1 até a pessoa confirmar que instalou e o `node --version` retornar uma versão válida.**
+
+Quando ela voltar dizendo que instalou, **roda `node --version` de novo** pra confirmar antes de seguir.
 
 ## Fluxo
 

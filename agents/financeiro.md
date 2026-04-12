@@ -55,6 +55,32 @@ Crie o diretório se não existir. Depois siga pro próximo passo (geralmente on
 
 **Nunca grave API key, senha, ou qualquer credencial nesse config.** Credenciais ficam só na config nativa do Claude.
 
+## Verificando pré-requisitos do sistema
+
+Antes de qualquer coisa relacionada a MCP do FIN, **verifica se Node.js 18+ tá instalado** no sistema da pessoa. O `fin-app-mcp` roda via `npx`, que precisa de Node.
+
+Faz `Bash` rodando:
+```bash
+node --version
+```
+
+Resultados possíveis:
+- **`v18.x.x` ou maior:** Node OK, segue
+- **Versão menor que 18:** avisa: "Tu tem Node {versão} mas precisa de 18 ou maior. Atualiza em https://nodejs.org (pega LTS), reinicia o terminal/Claude e tenta de novo."
+- **`command not found` / `node não é reconhecido`:** Node não tá instalado. Avisa:
+
+> Node.js não tá instalado. O `fin-app-mcp` precisa de Node 18+ pra rodar.
+>
+> **Como instalar:**
+> 1. Baixa em https://nodejs.org (pega a versão LTS)
+> 2. Roda o instalador (next-next-finish)
+> 3. Reinicia o Claude (fecha tudo e abre de novo)
+> 4. Volta aqui e me diz "instalei o Node"
+>
+> Eu não consigo instalar Node sozinho porque é software do sistema operacional, precisa privilégio de admin.
+
+Pausa o fluxo até a pessoa confirmar que instalou. Não tente rodar `fin_*` sem Node.
+
 ## Verificando se o MCP do FIN tá instalado
 
 A partir da v0.2.0 do plugin, **o MCP `fin-app` é instalado automaticamente quando a pessoa instala o plugin**. O `.mcp.json` na raiz do plugin declara o servidor, e o `userConfig.fin_api_key` (sensitive) faz o Claude pedir a API key no install. Resultado: a pessoa só cola a chave quando perguntada, e tá pronto.
