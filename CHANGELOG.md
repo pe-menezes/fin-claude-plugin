@@ -7,6 +7,15 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-04-12
+
+### Corrigido
+- **Plugin instalava mas ficava com erro `Missing required user configuration value: fin_api_key`**. Causa: no `userConfig.fin_api_key` do `plugin.json`, faltava o campo `required: true`. Sem ele, o Claude Code v2.1+ considerava a config opcional e **nunca disparava o prompt de input da API key** durante a instalação. O `.mcp.json` então referenciava `${user_config.fin_api_key}` como string vazia e o MCP server do FIN não conseguia subir. Adicionado `required: true` — agora o Claude Code pede a API key no install como esperado.
+
+### Bumps
+- `plugin.json`: 0.2.1 → 0.2.2
+- `marketplace.json`: 0.2.1 → 0.2.2
+
 ## [0.2.1] - 2026-04-12
 
 ### Corrigido

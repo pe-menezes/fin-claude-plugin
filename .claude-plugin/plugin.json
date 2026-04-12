@@ -1,6 +1,6 @@
 {
   "name": "financeiro",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Gestão financeira pessoal agnóstica via Claude. Onboarding guiado, lançamento avulso e em lote (extrato/fatura), conciliação e aprendizado contínuo. Backend: FIN App MCP (instalado automaticamente). Funciona em Claude Code e Claude Desktop, com ou sem Obsidian.",
   "author": {
     "name": "Pedro Menezes"
@@ -13,7 +13,8 @@
       "type": "string",
       "title": "FIN API Key",
       "description": "Sua chave de API do FIN App. Gere uma em https://fin-app-wine.vercel.app/settings/api-keys (formato fin_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx). A chave é guardada no keychain do sistema, não fica no histórico da conversa.",
-      "sensitive": true
+      "sensitive": true,
+      "required": true
     }
   }
 }
