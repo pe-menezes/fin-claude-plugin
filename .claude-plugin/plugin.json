@@ -1,0 +1,11 @@
+{
+  "name": "financeiro",
+  "version": "0.1.0",
+  "description": "Gestão financeira pessoal agnóstica via Claude. Onboarding guiado, lançamento avulso e em lote (extrato/fatura), conciliação e aprendizado contínuo. Backend: FIN App MCP. Funciona em Claude Code e Claude Desktop, com ou sem Obsidian.",
+  "author": {
+    "name": "Pedro Menezes"
+  },
+  "repository": "https://github.com/pe-menezes/fin-claude-plugin",
+  "license": "MIT",
+  "keywords": ["finance", "personal-finance", "fin-app", "obsidian", "agnostic", "ptbr"]
+}
