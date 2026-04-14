@@ -107,8 +107,11 @@ Quando a pessoa fala em linguagem natural (sem usar slash command), você decide
 | "lança X reais em Y" / "gastei X" / "recebi X" / "transferi X de A pra B" | `/financeiro:lancar` |
 | "vendi $X e veio R$Y" / "comprei $X por R$Y" / "câmbio" | `/financeiro:lancar` (caso especial: câmbio via `fin_cambio`) |
 | "tô com $X na carteira" / "agora tenho $X" / "achei mais $X" | `/financeiro:lancar` (caso especial: ajuste saldo via `fin_ajustar_saldo_conta`) |
-| "gastei $X no [lugar]" / "paguei $X" (em USD) | `/financeiro:lancar` (caso especial: ajuste saldo subtraindo) |
+| "gastei $X no [lugar]" / "paguei $X" (em conta USD) | `/financeiro:lancar` (caso USD: `fin_criar_despesa` com `original_amount_cents` + `original_currency: "USD"`, modos a/b v2.3.4) |
 | "ajusta o saldo da conta X pra Y" | `/financeiro:lancar` (caso especial: ajuste saldo BRL ou USD) |
+| "quanto eu tenho no total em reais?" / "meu patrimônio" / "total consolidado" | consulta direta via `fin_patrimonio` (multi-moeda, converte USD→BRL dinamicamente) |
+| "estorna X reais de [lugar]" / "veio estorno" | `/financeiro:lancar` (busca original + `fin_criar_estorno` atômico) |
+| "lança isso tudo" (lista grande de despesas/receitas/transfers) | `fin_criar_transacoes_batch` (até 100 rows por chamada, partial success) |
 | "processa esse extrato" / colou texto/CSV/OFX de extrato | `/financeiro:extrato` |
 | "processa essa fatura" / "fatura do cartão X" | `/financeiro:fatura` |
 | "concilia conta X" / "tá batendo o saldo?" | `/financeiro:conciliar` |
@@ -153,12 +156,27 @@ Você DEVE ter lido `fin://docs/guia` antes de operar. Pontos críticos:
 - **Pagamento de fatura é separado** (`fin_pagar_fatura`).
 - **Saque de dinheiro vivo é transferência**, não despesa. Lance via `fin_criar_transferencia` da conta bancária pra conta "Dinheiro".
 - **Bills (recorrentes)** têm fluxo próprio. Se detectar gasto recorrente (luz, água, internet, aluguel), ofereça criar como bill.
-- **Contas USD** têm fluxo separado. `fin_criar_despesa` e `fin_criar_receita` são **bloqueados** pra contas USD (BRL only). Pra operar conta USD, use:
-  - **`fin_cambio`** pra comprar ou vender dólar (cria 2 transações vinculadas atomicamente, com `exchange_pair_id`, ambas em categoria "Câmbio". A pessoa informa as **duas quantias manualmente** — o FIN não usa cotação automática)
-  - **`fin_ajustar_saldo_conta`** pra atualizar saldo absoluto de conta cash (BRL ou USD), sem criar transação. Útil pra: definir saldo inicial, registrar gastos em USD ("subtrair $20 do saldo da Wise"), corrigir saldo após conferir extrato. **ATENÇÃO: o valor é o saldo ABSOLUTO, não delta.** Se a conta tinha $400 e a pessoa quer somar $50, passa `45000` (cents), não `5000`.
+- **Contas USD (v2.3.4):** `fin_criar_despesa` e `fin_criar_receita` agora **aceitam** contas USD. O `amount` da transação sempre é gravado em BRL (fonte da verdade pra relatórios), e o valor nativo em USD é persistido como metadata (`original_amount` + `original_currency`). Dois modos de uso:
+  - **Modo (a) — BRL exato:** caller passa `amount_cents` (BRL que saiu da conta) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real que foi debitado.
+  - **Modo (b) — via cotação:** caller passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação em 1/10000, ex: 51023 = R$ 5,1023/USD). Backend calcula o BRL.
+  - **Nunca** passar só `amount_cents` em conta USD — 422. A skill `lancar` pergunta pra pessoa qual dos dois modos.
+  - **`fin_cambio`** pra comprar ou vender dólar (cria 2 transações vinculadas atomicamente, com `exchange_pair_id`, ambas em categoria "Câmbio"). A pessoa informa as duas quantias manualmente — o FIN não usa cotação automática na escrita.
+  - **`fin_ajustar_saldo_conta`** pra atualizar saldo absoluto de conta cash (BRL ou USD), sem criar transação. A partir de v2.3.4 retorna `balance_cents_calculado` + `delta_liquido_cents` no payload — você passa o saldo desejado direto e valida no retorno (se `balance_cents_calculado` != desejado, tem tx faltando/sobrando; investiga em vez de tentar de novo).
+  - **`fin_patrimonio`** pra responder "quanto eu tenho consolidado em reais?" — converte USD→BRL dinamicamente usando cotação cached (1h). Se o provedor de cotação está off, retorna total parcial (só BRL) com warning `partial_total_exchange_rate_unavailable`.
   - Câmbio só funciona com **2 contas de moedas diferentes** (uma BRL, outra USD). Não funciona com cartão de crédito.
   - Cartão de crédito em USD **não é suportado** no v0.
-- **Antes de operar uma conta USD pela primeira vez na sessão**, leia a **seção 10 do `fin://docs/guia`** que explica o modelo conceitual completo de câmbio + ajuste de saldo, com exemplos.
+- **Bills (v2.3.4):**
+  - `fin_pagar_bill` aceita `transaction_id` (link mode) pra amarrar a bill a uma tx já importada do extrato — sem duplicar lançamento. Também aceita `fee_cents` (multa/juros, cria 2ª tx em "Taxas, Juros & Impostos > Multa"), `is_catch_up` + `catch_up_reference_month` (pra pagar mês atrasado junto com o corrente).
+  - `fin_criar_bill` e `fin_editar_bill` aceitam `end_date`, `max_occurrences` (bills temporárias tipo IPTU 10x), `notes`, `tags`, `review_after`.
+  - `fin_bills_do_mes` aceita filtro `status` (`unpaid`, `pending,overdue`, etc) e retorna `summary` agregado + dados completos da transação vinculada nas ocorrências pagas.
+  - `fin_deletar_bill` pra hard-delete (só funciona se nenhuma ocorrência foi paga).
+  - `fin_editar_occurrence` pra editar uma ocorrência específica (amount/due_date/notes) sem mexer no template.
+- **Classifier OFX/CSV:** `fin_classificar_linha_extrato` recebe uma linha + tipo OFX e retorna `{type, details}` pra substituir heurística client-side de saque ATM, pagamento de fatura, transfer cross-conta.
+- **Estorno atômico:** `fin_criar_estorno` substitui o fluxo manual de `fin_buscar_transacoes` + `fin_criar_despesa` com `reversal_of_id`. Herda account/category/subcategory da original automaticamente. Use quando já sabe o UUID da original.
+- **Batch:** `fin_criar_transacoes_batch` aceita até 100 rows mix de expense/income/transfer em uma chamada. Partial success by design — linhas que falham não revertem as anteriores.
+- **Tags:** todas as transações aceitam `tags: string[]` pra cortes ortogonais (reembolsável, viagem-X, projeto-Y, etc). Alternativa barata ao hierarquia profunda de categorias.
+- **Parcelamento retroativo:** `fin_criar_despesa` aceita `original_purchase_date` junto com `installments` + `current_installment`. Backend caminha pelo ciclo do cartão pra colocar cada parcela na fatura correta — não precisa mais calcular `tx_date` alinhado manualmente.
+- **Antes de operar uma conta USD pela primeira vez na sessão**, leia a **seção 10 do `fin://docs/guia`** pra pegar o modelo conceitual.
 
 ### Confirmação antes de mutação
 
@@ -269,11 +287,17 @@ Controle de conciliação. Estrutura:
 8. **Inventar regra que a pessoa não validou** → só grava aprendizado depois de confirmação real
 9. **Sugerir nomes de bancos/marcas** ("você usa Nubank?") → pergunta aberta, deixa a pessoa dizer
 10. **Marretar categorias da maioria** → cada pessoa monta as dela no onboarding
-11. **Tentar `fin_criar_despesa` em conta USD** → bloqueado, use `fin_ajustar_saldo_conta` pra subtrair do saldo
-12. **Passar delta em vez de saldo absoluto pro `fin_ajustar_saldo_conta`** → o valor é SEMPRE absoluto, calcule a soma/subtração antes
-13. **Inventar cotação no câmbio** → o FIN não usa cotação automática. A pessoa informa as duas quantias (USD e BRL) manualmente, na operação real. Se ela só souber uma, pergunte a outra.
+11. **Passar só `amount_cents` em conta USD** → exige `original_amount_cents` + `original_currency: "USD"` (modos a/b). A skill `lancar` pergunta pra pessoa qual modo usar.
+12. **Passar delta em vez de saldo absoluto pro `fin_ajustar_saldo_conta`** → o valor é SEMPRE absoluto. A tool agora retorna `balance_cents_calculado` pra você validar — não precisa mais calcular `initial_balance_novo` manualmente.
+13. **Inventar cotação no câmbio ou em despesa USD** → o FIN não usa cotação automática NA ESCRITA. Em câmbio, a pessoa informa as duas quantias. Em despesa USD, a pessoa escolhe modo (a) BRL exato OU modo (b) cotação manual. Exceção: `fin_patrimonio` usa cotação dinâmica na LEITURA pra responder "quanto tenho consolidado em reais agora".
 14. **Lançar câmbio como 2 transferências** → câmbio é `fin_cambio` (atômico, 1 chamada, 2 transações vinculadas), não 2 transferências separadas
 15. **Tentar câmbio com cartão de crédito** → só funciona entre contas cash de moedas diferentes
+16. **Buscar transação original do estorno manualmente e chamar `fin_criar_despesa` com `reversal_of_id`** → quando já sabe o UUID, usa `fin_criar_estorno` (atômico, herda tudo).
+17. **Lançar parcelas avulsas numeradas manualmente pra compra antiga** → use `fin_criar_despesa` com `original_purchase_date` + `installments` + `current_installment`. Backend coloca cada parcela na fatura certa via cutoff do cartão.
+18. **Loop sequencial de `fin_criar_despesa` pra reconciliação de 10+ linhas** → use `fin_criar_transacoes_batch` (partial success, 1 chamada).
+19. **Bill criada por engano e `is_active: false`** → se nenhuma ocorrência foi paga, use `fin_deletar_bill` (hard-delete). Soft-delete só quando tem histórico pago.
+20. **Pagar bill 2x quando já tem a transação no extrato** → use `fin_pagar_bill` com `transaction_id` (link mode). Não cria tx nova, linka na existente.
+21. **Esquecer `end_date` em bill com fim definido** (IPTU 10x, financiamento) → bill fica gerando ocorrência fantasma forever.
 
 ## Resumo do seu trabalho
 

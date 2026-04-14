@@ -115,15 +115,18 @@ Se sim, pra cada conta USD capture:
 - **Moeda:** USD
 - **Saldo atual em USD** (opcional, pode ajustar depois via `fin_ajustar_saldo_conta`)
 
-**Avise sobre as limitações do v0 USD:**
+**Como funciona despesa em conta USD (v2.3.4):**
 
-> Aviso: contas em dólar no FIN, no momento, são "saldo manual". Tu não consegue lançar despesa categorizada em USD ainda (limitação v0). O que dá pra fazer:
+> Desde v2.3.4 dá pra lançar despesa categorizada em USD. O FIN grava `amount` sempre em BRL (pra relatórios ficarem honestos), e guarda o valor nativo em USD como metadata. Na hora de lançar, eu vou te perguntar: *"gastou $X na [Conta USD] — sabe quanto saiu em reais da tua conta, ou prefere estimar com uma cotação?"* (modo exato ou modo cotação).
 >
-> 1. **Câmbio** USD ↔ BRL (vender ou comprar dólar) — cria 2 transações vinculadas, categoria "Câmbio"
-> 2. **Ajustar saldo** da conta USD a qualquer momento (somar/subtrair dólar)
-> 3. **Gastar em USD** (ex: AliExpress, viagem) entra como ajuste de saldo, sem categoria
+> O que dá pra fazer com conta USD:
 >
-> Quando tu fizer câmbio, eu registro nas duas pontas direitinho. Beleza?
+> 1. **Despesa/receita categorizada em USD** via `fin_criar_despesa` / `fin_criar_receita` com `original_amount_cents` + `original_currency: "USD"`.
+> 2. **Câmbio** USD ↔ BRL (vender ou comprar dólar) via `fin_cambio` — cria 2 transações vinculadas, categoria "Câmbio"
+> 3. **Ajustar saldo** da conta USD a qualquer momento via `fin_ajustar_saldo_conta`
+> 4. **Patrimônio consolidado em reais** via `fin_patrimonio` — converte USD→BRL na leitura usando cotação cached (1h)
+>
+> Beleza?
 
 **Confirme o bloco 1** antes de seguir:
 
@@ -216,6 +219,7 @@ Esse é o bloco mais conversacional. Pergunta uma coisa de cada vez, mas rápido
 7. **"Tem rotina de estética ou cuidados regulares? Cabelo, manicure, drenagem, depilação?"** → cria subs específicas em **Pessoal** (achatadas se necessário, ver regra de achatamento abaixo)
 8. **"Fuma, vapeia, ou tem algum vício controlado que tu quer rastrear?"** → cria **Pessoal > Tabaco/Vícios**
 9. **"Tem algum gasto recorrente importante que não se encaixa no padrão?"** → captura o inesperado, cria categoria/sub conforme
+10. **"Tem alguma conta recorrente com prazo definido (IPTU parcelado, financiamento, matrícula 12x)?"** → se sim, ao criar a bill no Bloco 6 passa `end_date` (último mês com ocorrência) ou `max_occurrences` (N parcelas). O FIN para de gerar ocorrências fantasma depois disso. Ex: IPTU 10x jan-out/2026 → `end_date: "2026-10-10"`. Sem isso, a bill gera ocorrência eterna até alguém marcar `is_active: false`.
 
 ### Achatamento de hierarquia (REGRA CRÍTICA)
 
@@ -424,9 +428,9 @@ Mostra um resumo curto:
 
 > Encontrei: [N] contas bancárias BRL, [U] contas em USD (se houver), [M] cartões de crédito, [K] categorias com [W] subcategorias no total. Vou popular tua memória local com isso.
 
-Se detectou contas USD, avisa que vai tratar separado:
+Se detectou contas USD, avisa o modelo de operação (v2.3.4):
 
-> Detectei [U] conta(s) em dólar. Pra essas, no v0 do FIN só dá pra usar câmbio (`fin_cambio`) e ajuste de saldo (`fin_ajustar_saldo_conta`). Vou popular o histórico de câmbio na análise.
+> Detectei [U] conta(s) em dólar. A partir da v2.3.4 dá pra lançar despesa/receita categorizada em USD — o FIN grava em BRL como fonte da verdade e mantém o valor nativo em USD como metadata. Na hora de lançar eu pergunto se tu sabe o valor exato em BRL que saiu ou prefere informar a cotação. Câmbio (`fin_cambio`) e ajuste de saldo (`fin_ajustar_saldo_conta`) continuam disponíveis. Pra ver patrimônio consolidado em reais, uso `fin_patrimonio`.
 
 **Popule `Financeiro/Contas e Cartões.md`** automaticamente:
 - Tabela de contas: nome, tipo, **moeda (BRL/USD)**, apelidos (vazio inicialmente, vai aprendendo)

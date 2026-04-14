@@ -227,16 +227,32 @@ Se ela disser "Loja Nova SA é tudo Pessoal > Roupas", aprende.
 
 ### Passo 8 — Lançar em batch
 
-**Lança em sequência** (uma por vez se a tool não suportar batch). Mostra progresso:
+**A partir de v2.3.4**, use `fin_criar_transacoes_batch` pra lançar até 100 rows de uma vez (mix de expense/income/transfer). Bate em 1 chamada o que antes eram N chamadas sequenciais.
 
-> Lançando... [12/47 ✓]
+```
+{
+  "transactions": [
+    { "type": "expense", "amount_cents": 5000, "description": "Mercado XYZ", "account_name": "Caixa", "category_name": "Alimentação", "subcategory_name": "Mercado" },
+    { "type": "income", "amount_cents": 500000, "description": "Salário", "account_name": "Caixa" },
+    { "type": "transfer", "amount_cents": 20000, "description": "Saque 24h", "account_from": "Caixa", "account_to": "Dinheiro" },
+    ...
+  ]
+}
+```
 
-Pra cada lançamento:
-- Tipo: despesa (`fin_criar_despesa`) ou receita (`fin_criar_receita`)
-- Transferências detectadas no extrato (TRNTYPE=XFER no OFX) → `fin_criar_transferencia`
-- Inclui no campo `external_id` ou descrição a chave de idempotência (FITID ou hash) pra futura referência
+Resposta: `{ total, created: [...], failed: [...] }`. **Partial success by design** — rows que falham NÃO revertem as anteriores. Mostra progresso:
 
-Se algum lançamento falhar, anota e segue. No fim mostra: "Lançadas X de Y. Falhas: [lista]".
+> Lançando 47 transações em batch... ✓ 45 criadas, 2 falhas.
+
+Pra cada row:
+- `type: "expense"` → `fin_criar_despesa` semantics.
+- `type: "income"` → `fin_criar_receita` semantics.
+- `type: "transfer"` → `fin_criar_transferencia` semantics.
+- Inclui na description a chave de idempotência (FITID ou hash) pra futura referência.
+
+Se o batch tiver mais de 100 rows, quebra em múltiplas chamadas.
+
+**Se alguma row falhar**, mostra a lista no fim: *"Lançadas 45 de 47. Falhas: [{ index: 12, error: 'categoria não encontrada' }, ...]"*. Pergunta como tratar.
 
 ### Passo 9 — Atualizar memória
 
@@ -273,23 +289,38 @@ Se a pessoa deu uma regra explícita ("loja nova SA é sempre roupa"), adiciona 
 
 Depois de importar todas as transações do extrato em lote, **sempre** reconcilia o saldo da conta no FIN com o saldo real do app bancário. Isso é o que fecha o lote — se pular, o saldo fica à deriva e toda sessão futura vai ter que lidar com número errado.
 
-**Fluxo:**
-1. Pergunta pra pessoa: "Qual é o saldo atual do app do [banco] agora? (print da tela inicial ajuda)". Se o extrato tinha linha de "saldo final", usa o valor dele como referência inicial mas **confirma com a pessoa** porque extrato OFX/CSV pode ter data de corte diferente de "agora".
-2. Chama `fin_saldos` e `fin_listar_contas` pra pegar `saldo_exibido_atual` e `initial_balance_atual`.
-3. Calcula a diferença: `diferenca = saldo_desejado − saldo_exibido_atual`.
-4. Se `diferenca == 0` → saldo já bate, nada a fazer. Avisa "✓ Saldo bateu certinho, R$ X,XX".
-5. Se `diferenca != 0`:
-   - **Primeiro investiga**: a diferença pode indicar transação faltando ou sobrando. Pergunta: "tá dando R$ X a mais/menos — falta lançar alguma coisa desde o último movimento do extrato, ou tem alguma transação duplicada?".
-   - Se a pessoa confirmar que o saldo inicial do período do extrato estava errado no FIN (caso típico: primeira importação de uma conta), aplica o ajuste retroativo no `initial_balance`:
-     ```
-     initial_balance_novo = initial_balance_atual + diferenca
-     ```
-     Chama `fin_ajustar_saldo_conta` com `amount_cents: initial_balance_novo`.
-   - Re-chama `fin_saldos` pra confirmar que o exibido agora bate.
+**Fluxo simplificado (v2.3.4):**
+1. Pergunta pra pessoa: *"Qual é o saldo atual do app do [banco] agora? (print da tela inicial ajuda)"*. Se o extrato tinha linha de "saldo final", usa como referência mas **confirma com a pessoa** porque o OFX pode ter data de corte diferente de "agora".
+2. Chama `fin_saldos` pra pegar o saldo exibido atual. Se já bater, nada a fazer — avisa *"✓ Saldo já bate, R$X,XX"* e fim.
+3. Se não bater, **primeiro investiga**: pergunta *"tá dando R$X a mais/menos — falta lançar alguma coisa desde o último movimento do extrato, ou tem duplicata?"*.
+4. Se a pessoa confirmar que o saldo inicial do período estava errado no FIN (típico em primeira importação), chama `fin_ajustar_saldo_conta` passando o **saldo desejado** direto em `amount_cents`. A tool retorna `balance_cents_calculado` — confere se bateu. Se bateu, segue. Se não bateu, investiga (tem transação faltando/sobrando que não é resolvida por ajuste de `initial_balance` sozinho).
 
-**Armadilha crítica:** `fin_ajustar_saldo_conta` **sobrescreve o `initial_balance`**, não o saldo exibido. Se passar o saldo desejado direto, o FIN recalcula por cima e o valor fica errado. **Sempre use a fórmula acima.** Ver `skills/lancar/SKILL.md` → Caso B/C pra fluxo detalhado.
+**O que mudou de antes:** não precisa mais calcular `initial_balance_novo` manualmente nem chamar `fin_listar_contas` pra pegar `initial_balance_atual`. A tool faz a conta e devolve o saldo exibido pós-ajuste. Se `balance_cents_calculado` != desejado, é sinal de problema de dados — investiga em vez de insistir.
 
 **Atualizar `Status Conciliação.md`:** registra que o saldo foi reconciliado em DD/MM/AAAA e em qual valor, pra sessões futuras saberem o ponto de partida.
+
+## Classificação automática de linhas (v2.3.4)
+
+**A partir de v2.3.4**, em vez de fazer heurística client-side pra saque/pagamento de fatura/transferência cross-conta, use `fin_classificar_linha_extrato`. A tool recebe `{description, amount_cents, account_id, trntype?, fitid?}` e retorna `{type, confidence, reason, details}` onde type ∈ `expense|income|transfer|payment_invoice|atm_withdrawal`.
+
+**Fluxo recomendado:** passa cada linha pelo classifier antes de decidir qual tool de lançamento usar. A resposta te diz o tipo e (quando possível) sugere a conta contraparte (conta Dinheiro pra ATM, cartão pra PAG FATURA, outra conta pra XFER).
+
+```
+// Exemplo
+classify({
+  description: "SAQUE 24H BANCO X",
+  amount_cents: -20000,
+  account_id: "uuid-c6",
+  trntype: "ATM"
+})
+→ { type: "atm_withdrawal", confidence: "high",
+    details: { suggested_cash_account_id: "uuid-dinheiro" } }
+// → cria transferência C6 → Dinheiro via fin_criar_transferencia
+```
+
+O classifier tem blocklist de palavras genéricas (PIX, TED, DOC, etc) pra não dar falso positivo. Se a resposta vier com `confidence: "low"`, pergunta pra pessoa antes de lançar.
+
+As seções abaixo ainda valem como referência semântica do que cada tipo significa, mas a **detecção** deve usar o classifier.
 
 ## Casos especiais
 

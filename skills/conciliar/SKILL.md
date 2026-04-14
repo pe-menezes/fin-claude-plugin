@@ -164,6 +164,8 @@ Possíveis razões:
 
 Se "lançar agora", chama as tools de criação correspondentes (`fin_criar_despesa` / `fin_criar_receita` / `fin_criar_transferencia` / `fin_fatura_transacoes` se for cartão), aplicando categorização via `Estabelecimentos.md`.
 
+**Pra volumes maiores (5+ rows pendentes de lançamento):** use `fin_criar_transacoes_batch` — até 100 rows mix de expense/income/transfer em 1 chamada, com resposta `{ created, failed }` pra você mostrar progresso. Partial success by design (linhas que falham não revertem as anteriores).
+
 #### Pra "Leve diferença" (3 transações)
 Mostra o que diverge (data, valor, descrição) e pergunta:
 > A linha do FIN tá certa, ou a do extrato tá certa?
@@ -253,13 +255,14 @@ Atualiza `Status Conciliação.md`.
 ## Fluxo — Modo 3 (conferência de saldo)
 
 ### Passo 1 — Pegar saldo do FIN
-```
-fin_saldos
-```
+
+**Pra conta específica:** `fin_saldos` (retorna saldo nativo, BRL ou USD, por conta).
+
+**Pra patrimônio consolidado em BRL (todas as contas cash+checking):** `fin_patrimonio` — útil quando a pessoa pergunta *"quanto eu tenho no total em reais, contando o dólar?"*. Converte USD→BRL dinamicamente via cotação cached (1h). Retorna também `partial: true` + warning se o provedor de cotação estiver off.
 
 ### Passo 2 — Pessoa diz o saldo do app
 
-> Quanto tá teu saldo no app do banco agora?
+> Quanto tá teu saldo no app do banco agora? (ou "qual teu total consolidado que tu imagina?")
 
 ### Passo 3 — Comparar
 
@@ -267,6 +270,8 @@ fin_saldos
 - Não bate: "Diferença de R$Y. Quer rodar conciliação completa pra achar a divergência?"
 
 Se sim, vai pro Modo 1 ou 2 conforme a pessoa tenha extrato ou não.
+
+**Atenção USD:** se a diferença aparece só no `fin_patrimonio` (e não em contas BRL individuais), pode ser variação de cotação entre a leitura anterior e a atual — cotação muda, patrimônio consolidado muda, nenhuma transação faltou. Confirma isso antes de partir pra investigação.
 
 ## Casos especiais
 
@@ -293,8 +298,12 @@ Tipo: extrato da conta A mostra "TRANSFERENCIA PARA CONTA B R$500", mas no FIN e
 
 Tipo: o saldo final do extrato + lançamentos do mês não bate com o saldo inicial do extrato seguinte. Isso indica que o FIN tem saldo inicial errado pra essa conta.
 
-- Avisa a pessoa: "O saldo inicial dessa conta no FIN parece estar errado por R$X. Quer que eu lance um ajuste de R$X?"
-- Se sim, cria via `fin_criar_receita` ou `fin_criar_despesa` em categoria "Ajuste Financeiro"
+Avisa a pessoa: *"O saldo inicial dessa conta no FIN parece estar errado por R$X. Quer que eu ajuste?"*
+
+**Dois caminhos, escolhe um:**
+
+- **Opção A — ajuste contábil silencioso (não aparece em relatório):** `fin_ajustar_saldo_conta` com `amount_cents` = saldo desejado. Tool retorna `balance_cents_calculado` pra você validar. Use quando a diferença é claramente um erro histórico de `initial_balance` (ex: saldo não estava lá quando criou a conta).
+- **Opção B — lançar transação categorizada em "Ajuste Financeiro":** `fin_criar_receita` ou `fin_criar_despesa`. Use quando faz sentido que apareça em relatórios mensais como movimentação (ex: pessoa achou dinheiro, rendimento não lançado).
 
 ## Erros comuns que você deve evitar
 

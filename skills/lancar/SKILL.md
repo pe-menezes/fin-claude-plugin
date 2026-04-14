@@ -109,12 +109,16 @@ Se ambíguo, pergunta:
 
 **Pré-requisito:** se a pessoa tem alguma conta USD no FIN, leia a **seção 10 do `fin://docs/guia`** uma vez por sessão antes de operar qualquer coisa em USD. Sem isso, você comete erros de modelo.
 
-#### Regras de negócio críticas (do FIN)
+#### Regras de negócio críticas (do FIN v2.3.4)
 
-1. **`fin_criar_despesa` e `fin_criar_receita` são bloqueados pra contas USD** (BRL only). Se você tentar, vai falhar com mensagem clara apontando pra tool certa. **Nunca tente lançar despesa/receita categorizada em USD.**
+1. **`fin_criar_despesa` ACEITA contas USD** (a partir de v2.3.4). `amount` sempre é gravado em BRL (fonte da verdade pra relatórios), mas a tool aceita `original_amount_cents` + `original_currency: "USD"` pra preservar o valor nativo. Dois modos:
+   - **Modo (a) — pessoa informa o BRL exato:** passa `amount_cents` (BRL que saiu) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real que saiu da conta (Wise mostra, extrato do banco mostra).
+   - **Modo (b) — pessoa só sabe a cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação BRL por 1 USD em 1/10000, ex: 51023 = R$5,1023/USD). Backend calcula o BRL. Use quando a pessoa só tem a cotação estimada.
+   - **NUNCA** passa só `amount_cents` numa conta USD. Retorna 422.
+   - O que perguntar pra pessoa: *"Gastou US$X na [Conta USD] — sabe quanto saiu em reais da tua conta, ou prefere estimar com uma cotação?"*
 2. **Câmbio é uma operação atômica** via `fin_cambio`. Cria 2 transações vinculadas (uma despesa na origem, uma receita no destino), ambas com categoria "Câmbio" e um `exchange_pair_id` compartilhado. Se uma falhar, a outra é desfeita.
-3. **O FIN não usa cotação automática.** A pessoa informa as **duas quantias manualmente** (USD e BRL), porque a taxa real varia (banco, spread, operação manual). Você nunca calcula cotação.
-4. **`fin_ajustar_saldo_conta` sobrescreve o `initial_balance` da conta — NÃO o saldo exibido.** Essa é a armadilha mais cara da API. O FIN calcula `saldo_exibido = initial_balance + soma(receitas) − soma(despesas) − soma(transfers_out) + soma(transfers_in)`. Se você passar "o saldo atual que a pessoa quer ver", o FIN vai recalcular por cima e o valor vai ficar errado. **Regra correta** (vale pra BRL e USD): pra fazer o saldo exibido chegar num valor desejado, use `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`. Na prática: lê `fin_saldos` pra descobrir `saldo_exibido_atual`, calcula a diferença pro desejado, soma essa diferença no initial_balance via a tool. Ver **Caso B/C** abaixo pra exemplos passo-a-passo. **Exceção:** conta recém-criada sem nenhuma transação ainda — aí `initial_balance` = saldo exibido e você pode passar o saldo desejado direto.
+3. **O FIN nunca usa cotação automática ao gravar.** Nem em `fin_cambio`, nem em `fin_criar_despesa` USD. A pessoa informa valores manualmente porque a taxa real varia (Wise spot ≠ casa de câmbio ≠ banco). Exceção: `fin_patrimonio` converte USD→BRL dinamicamente **só na leitura** pra responder "quanto eu tenho hoje em reais" — essa é uma pergunta de balance, não de transação.
+4. **`fin_ajustar_saldo_conta` retorna `balance_cents_calculado` direto** (a partir de v2.3.4). Antes a gente tinha que re-chamar `fin_saldos` depois pra validar. Agora a tool calcula o saldo exibido pós-ajuste e devolve junto com `delta_liquido_cents`. **Ainda é armadilha** que a tool sobrescreve `initial_balance`, não o saldo exibido — mas agora você não precisa calcular nada manualmente: passa o saldo desejado e confere no retorno se `balance_cents_calculado` bateu com o esperado. Se não bateu, investiga. Ver **Caso B/C** abaixo.
 5. **Câmbio só funciona entre 2 contas cash de moedas diferentes** (uma BRL, outra USD). Cartão de crédito não é suportado.
 6. **Cartão de crédito em USD não é suportado** no v0.
 
@@ -157,69 +161,47 @@ Se ambíguo, pergunta:
 
 #### Caso B — Ajustar saldo manualmente (USD ou BRL)
 
-**ATENÇÃO (armadilha):** `fin_ajustar_saldo_conta` sobrescreve o `initial_balance`, não o saldo exibido. Se a conta tem transações importadas, **não** passe o "saldo atual desejado" direto — o FIN recalcula por cima e o valor fica errado. Use a fórmula do fluxo abaixo.
+**O que mudou (v2.3.4):** `fin_ajustar_saldo_conta` agora retorna `balance_cents_calculado` e `delta_liquido_cents` diretamente na resposta. Você não precisa mais fazer o roundtrip manual calculando `initial_balance_novo`. Só passa o saldo que a pessoa quer ver e confere no retorno.
+
+**Armadilha conhecida:** a tool sobrescreve `initial_balance`, não o saldo exibido. Mas agora o backend calcula o saldo pós-ajuste pra você e devolve. Se `balance_cents_calculado` (no retorno) não bater com o desejado, investiga — tem transação faltando/sobrando.
 
 **Padrões de fala:**
 - "Tô com $487 na carteira agora" → ajuste pra valor exibido final = $487
 - "Agora tenho $1200 na Wise" → ajuste pra $1200
 - "Achei mais $50, total tá em $537" → ajuste pra $537
-- "Achei mais $50 na carteira" (sem dizer total) → precisa ler saldo exibido atual, somar 50, ajustar pro resultado
 - "Ajusta o Caixa pra 1234,56" → ajuste pra R$1234,56
 - "O saldo do Itaú tá errado, tá em R$2000 e devia ser R$2150" → ajuste pra R$2150
 
-**Fluxo (vale pra BRL e USD):**
-1. Identifica a conta (lê `Contas e Cartões.md`).
-2. Lê `fin_saldos` pra descobrir `saldo_exibido_atual` e `fin_listar_contas` pra descobrir `initial_balance_atual` (campo `initial_balance_cents`).
-3. Calcula:
+**Fluxo simplificado (vale pra BRL e USD):**
+1. Identifica a conta.
+2. Confirma com a pessoa em uma linha:
+   > Ajustar saldo: Wise USD → $487. Confirma?
+3. Chama `fin_ajustar_saldo_conta` passando o **saldo desejado** em centavos:
    ```
-   diferenca = saldo_desejado − saldo_exibido_atual
-   initial_balance_novo = initial_balance_atual + diferenca
+   { "account_name": "Wise USD", "amount_cents": 48700 }
    ```
-4. Confirma em uma linha mostrando **antes e depois do saldo exibido**:
-   > Ajustar saldo: Wise USD de $437 → $487 (somou $50). Confirma?
-5. Chama `fin_ajustar_saldo_conta` passando **`initial_balance_novo`** como `amount_cents`:
-   ```
-   {
-     "account_name": "Wise USD",
-     "amount_cents": <initial_balance_novo_em_centavos>
-   }
-   ```
-6. **Valida**: re-chama `fin_saldos` e confere que o saldo exibido agora bate com o desejado. Se não bater, tem transação faltando/sobrando — investiga antes de seguir.
-7. Sucesso: avisa o novo saldo exibido.
+4. **Valida pelo retorno da tool**: confere que `balance_cents_calculado` bate com o desejado.
+   - **Se bateu:** avisa o saldo novo e segue.
+   - **Se não bateu:** a tool aceitou mas o saldo exibido ficou diferente porque a conta tem transações que fazem o cálculo `initial_balance + Σ(tx)` não dar no valor que a pessoa quer. Não tenta de novo — explica pra pessoa e investiga antes (provavelmente tem transação faltando ou sobrando no FIN).
 
-**Exemplo real (Lou, C6 BRL, 2026-04-12):**
-- Saldo exibido atual: −R$ 4.641,67 (−464167)
-- Initial balance atual: R$ 3.673,79 (367379) — valor errado deixado por ajuste anterior
-- Saldo desejado: R$ 3.673,79 (367379)
-- diferenca = 367379 − (−464167) = 831546
-- initial_balance_novo = 367379 + 831546 = 1198925 (R$ 11.989,25)
-- Passa `amount_cents: 1198925` → saldo exibido vira R$ 3.673,79 ✅
+**Se precisar de valor "delta" (ex: "achei mais $50" sem dizer total):**
+1. Lê `fin_saldos` pra pegar o saldo exibido atual.
+2. Calcula `saldo_desejado = atual + 50`.
+3. Segue fluxo acima.
 
-**Caso especial dentro do ajuste de saldo: gasto em USD (sem categorização)**
-
-> "Gastei $20 no AliExpress"
-
-No v0 do FIN, **não dá pra lançar despesa categorizada em USD**. O jeito recomendado:
-1. Segue o fluxo acima com `saldo_desejado = saldo_exibido_atual − 20 USD`.
-2. **Avisa a pessoa explicitamente que a categorização ficou de fora** (limitação do v0):
-   > Ajustei: Wise USD de $487 → $467 (gastou $20 no AliExpress). Não dá pra categorizar gasto em USD ainda (limitação do v0), mas o saldo tá certo. Quando tu fizer câmbio depois, a saída de dólar fica registrada na categoria Câmbio. Beleza?
+**Gasto em USD:** NÃO é mais caso de ajuste de saldo. A partir de v2.3.4, use `fin_criar_despesa` direto com `original_amount_cents` + `original_currency: "USD"`. Ver regra de negócio #1 acima.
 
 #### Caso C — Ajustar saldo BRL pra correção
 
-Mesma lógica do Caso B (fluxo completo lá: ler saldo exibido + initial_balance, calcular diferença, somar no initial_balance). Útil pra corrigir saldo após conferir extrato ou reconciliar depois de importar lote.
+Mesmo fluxo do Caso B — `fin_ajustar_saldo_conta` funciona pra BRL igualzinho.
 
 > "Ajusta o saldo do Caixa pra R$1234,56"
 
-1. Lê `fin_saldos` e `fin_listar_contas` pra pegar `saldo_exibido_atual` e `initial_balance_atual`.
-2. Calcula `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`.
-3. Confirma em uma linha (mostrando saldo exibido antes/depois, não o initial_balance):
-   > Ajustar saldo: Caixa de R$1100 → R$1234,56. Confirma?
-4. Chama `fin_ajustar_saldo_conta` com `amount_cents = initial_balance_novo`.
-5. Re-checa com `fin_saldos` que o exibido ficou certo.
+1. Confirma: *Ajustar saldo: Caixa → R$1234,56. Confirma?*
+2. Chama `fin_ajustar_saldo_conta` com `amount_cents: 123456`.
+3. Confere `balance_cents_calculado` no retorno.
 
-**Atenção 1:** ajuste de saldo BRL **não cria transação**, então não aparece em relatórios mensais como movimentação. É um ajuste contábil. Se a pessoa quiser que apareça como receita/despesa categorizada, oriente a usar `fin_criar_receita`/`fin_criar_despesa` em vez disso.
-
-**Atenção 2:** se o saldo exibido não bater com o desejado depois do ajuste, **não tenta de novo com outro valor**. Isso significa que tem transação faltando/sobrando no FIN. Investiga o extrato original antes.
+**Atenção:** ajuste de saldo **não cria transação**, então não aparece em relatórios mensais como movimentação. É um ajuste contábil. Se a pessoa quiser que apareça como receita/despesa categorizada, oriente a usar `fin_criar_receita`/`fin_criar_despesa`.
 
 #### Quando pedir leitura prévia de saldo
 
@@ -287,11 +269,13 @@ Conforme o tipo:
 | Tipo | Tool |
 |---|---|
 | Despesa BRL | `fin_criar_despesa` |
-| Receita BRL | `fin_criar_receita` |
+| Despesa USD (categorizada) | `fin_criar_despesa` com `original_amount_cents` + `original_currency: "USD"` |
+| Receita BRL ou USD | `fin_criar_receita` (mesma lógica multi-moeda) |
 | Transferência (incluindo saque) | `fin_criar_transferencia` |
 | Câmbio (vender ou comprar dólar) | `fin_cambio` |
 | Ajuste de saldo (BRL ou USD) | `fin_ajustar_saldo_conta` |
-| Gasto em USD (sem categorização, v0) | `fin_ajustar_saldo_conta` (subtraindo do saldo) |
+| Estorno de cartão (já sabe o ID da original) | `fin_criar_estorno` |
+| "Quanto eu tenho no total em reais?" | `fin_patrimonio` |
 
 Confere se a tool executou OK. Se erro, mostra mensagem clara e tenta uma vez mais ou pergunta como proceder.
 
@@ -336,19 +320,45 @@ Se sim, cria via `fin_criar_bill`. Se não, segue com a despesa avulsa normal.
 
 Se a pessoa disser **"parcelado em N vezes"** ou "X parcelas":
 
-- O FIN tem suporte nativo a parcelamento. Use o campo correto na tool de criação (confira na description de `fin_criar_despesa`).
+- O FIN tem suporte nativo a parcelamento. Passa `installments: N` em `fin_criar_despesa`.
 - **NÃO crie N transações manualmente.** O FIN gera as parcelas automaticamente.
 - Confirmação especial:
   > Despesa R$1200 em 12x de R$100 / Notebook / Tecnologia > Eletrônicos / C6 crédito. Primeira parcela cai na fatura que fecha em [data]. Confirma?
+
+**Parcelamento retroativo (compra antiga já em andamento):**
+
+> "Minhas Ray-Bans, comprei em dezembro 10x, tô na 4ª parcela"
+
+A partir de v2.3.4, o caminho intuitivo é passar `original_purchase_date` + `installments` + `current_installment`:
+
+```
+{
+  "description": "Ray-Ban",
+  "amount_cents": 137000,
+  "installments": 10,
+  "current_installment": 4,
+  "original_purchase_date": "2025-12-23",
+  "account_name": "Caixa Cartão",
+  "category_name": "Pessoal",
+  "subcategory_name": "Acessórios"
+}
+```
+
+O backend lê o cutoff do cartão e calcula em qual fatura a parcela 4 cai, 5, 6, ..., 10. Sem precisar pensar em `tx_date` nem em `invoice_cycle_end`. **Esse é o caminho preferido.**
+
+O workaround antigo (lançar cada parcela avulsa numerada manualmente com `invoice_cycle_end` forçado) ainda funciona mas fica como fallback — use só se `original_purchase_date` não conseguir resolver por algum motivo específico.
 
 ### Estorno
 
 Se a pessoa disser **"foi estornado"** ou "veio estorno de X":
 
-- **Estorno NÃO é receita.** É uma despesa com `reversal_of_id` apontando pra transação original.
-- Você precisa achar a transação original primeiro: `fin_buscar_transacoes` filtrando por valor + estabelecimento próximos
-- Mostra: "Achei a despesa original (R$100, Lojas X, dia Y). Vou criar o estorno apontando pra ela. Confirma?"
-- Se não achar a original, pergunta detalhes pra encontrar antes de tentar lançar
+- **Estorno NÃO é receita.** É uma despesa vinculada à transação original via `reversal_of_id`.
+- **v2.3.4 simplificou:** se você já sabe o UUID da original (achou via `fin_buscar_transacoes` ou `fin_fatura_transacoes`), usa `fin_criar_estorno` — tool atômica que herda account/category/subcategory da original automaticamente. Só precisa passar `original_transaction_id` + `amount_cents`.
+- Fluxo:
+  1. Busca a original com `fin_buscar_transacoes` (valor + estabelecimento próximos, janela de 3 meses).
+  2. Mostra: *"Achei a despesa original (R$100, Lojas X, dia Y). Vou criar o estorno apontando pra ela. Confirma?"*
+  3. Chama `fin_criar_estorno({original_transaction_id: "...", amount_cents: 10000})`. Pode ser parcial.
+  4. Se não achar a original, pergunta detalhes antes.
 
 ### Múltiplas formas de pagamento na mesma transação
 
@@ -380,8 +390,8 @@ Se ela disser "qualquer lugar, sei lá", aceita "Almoço" como descrição gené
 ## Erros comuns que você deve evitar
 
 1. **Lançar saque como despesa** → saque é transferência banco → Dinheiro
-2. **Lançar estorno como receita** → estorno é despesa com `reversal_of_id`
-3. **Criar parcelas manualmente** → o FIN cria automático via `installments`. **Exceção (parcela X/N de compra antiga, X > 1):** a partir da v2.3.2 dá pra usar `current_installment` **só se `tx_date` for a data da parcela atual** (não da compra original). Se `tx_date` é da compra original e os dias não alinham com o ciclo atual, o FIN rotula errado (Bug #12) — aí lança como **despesas avulsas numeradas manualmente** `"Nome (parcela X/N)"`, uma por mês, com `invoice_cycle_end` na primeira pra forçar a fatura atual. Ver `skills/fatura/SKILL.md` pra regra completa dos 2 cenários.
+2. **Lançar estorno como receita** → estorno é despesa. Use `fin_criar_estorno` se já sabe o UUID da original (herda tudo automaticamente); senão `fin_criar_despesa` com `reversal_of_id` manual.
+3. **Criar parcelas manualmente** → o FIN cria automático via `installments`. Pra compra antiga em andamento (parcela X/N com X > 1), o caminho preferido v2.3.4 é passar `original_purchase_date` junto — o backend coloca cada parcela na fatura certa usando o cutoff do cartão. Só cai em workaround manual se `original_purchase_date` falhar por algum motivo específico.
 4. **Aplicar regra aprendida sem mostrar** → sempre diz "apliquei tua regra: X → Y"
 5. **Atualizar regra existente sem confirmar** → se a pessoa categorizou diferente dessa vez, pergunta se é exceção ou nova regra
 6. **Aprender estabelecimento depois de uma única ocorrência sem confirmação** → sempre confirma a categoria antes de gravar
@@ -389,12 +399,12 @@ Se ela disser "qualquer lugar, sei lá", aceita "Almoço" como descrição gené
 8. **Encher linguiça** → resposta é curta. "✓ Lançado. [resumo]" e fim.
 9. **Pedir confirmação com 5 linhas de texto** → uma linha basta
 10. **Esquecer de atualizar `Estabelecimentos.md`** → toda transação com estabelecimento novo gera linha nova
-11. **Tentar `fin_criar_despesa` em conta USD** → bloqueado. Use `fin_ajustar_saldo_conta` pra subtrair do saldo (sem categorização, limitação v0)
-12. **Passar "o saldo que a pessoa quer ver" direto pro `fin_ajustar_saldo_conta`** → a tool sobrescreve o `initial_balance`, não o saldo exibido. Se a conta tem transações, o FIN vai recalcular por cima e o valor fica errado. Use a fórmula `initial_balance_novo = initial_balance_atual + (saldo_desejado − saldo_exibido_atual)`. Ver **Caso B/C** nesta skill pra fluxo completo.
+11. **Passar só `amount_cents` numa conta USD** → `fin_criar_despesa` exige `original_amount_cents` + `original_currency: "USD"` quando a conta é USD. Modo (a): + BRL exato. Modo (b): + `exchange_rate_cents_per_unit`. Ver Regra #1 do Passo 4.5.
+12. **Calcular `initial_balance_novo` manualmente antes de `fin_ajustar_saldo_conta`** → não precisa mais a partir de v2.3.4. Passa o saldo desejado direto, valida `balance_cents_calculado` no retorno. Se não bater, investiga (tem tx faltando/sobrando).
 13. **Inventar cotação no câmbio** → o FIN não usa cotação automática. Se a pessoa só falou uma das duas quantias, pergunta a outra
 14. **Lançar câmbio como 2 transferências separadas** → câmbio é `fin_cambio` (atômico, 1 chamada, 2 transações vinculadas com `exchange_pair_id`)
 15. **Tentar câmbio com cartão de crédito** → só funciona entre 2 contas cash de moedas diferentes
-16. **Esquecer de avisar limitação v0 ao gastar em USD** → sempre explica que categorização ficou de fora, pra pessoa não achar que é bug
+16. **Buscar transação original do estorno manualmente e chamar `fin_criar_despesa` com `reversal_of_id`** → usa `fin_criar_estorno` (atômico, herda account/category/subcategory).
 
 ## Tom
 

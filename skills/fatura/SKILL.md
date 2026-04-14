@@ -120,13 +120,13 @@ Mesma lógica do `extrato` pros 5 formatos (OFX, CSV, CNAB 240, texto, PDF). Ext
 
 ### Passo 6 — Tratamento de estornos
 
-**REGRA CRÍTICA do FIN:** estorno em cartão NÃO é receita. É **uma despesa com `reversal_of_id` apontando pra transação original**.
+**REGRA CRÍTICA do FIN:** estorno em cartão NÃO é receita. É **uma despesa vinculada à transação original via `reversal_of_id`**.
 
 Pra cada transação que parece estorno (descrição contém "ESTORNO" / "DEVOLUÇÃO" / "REEMBOLSO" OU valor negativo numa fatura):
 
 1. **Achar a despesa original** no FIN:
    - `fin_buscar_transacoes` filtrando por mesmo cartão, valor próximo (positivo do mesmo módulo), descrição parecida, dentro de uma janela de tempo (tipicamente até 3 meses antes)
-2. **Se achou exatamente uma:** vai usar como `reversal_of_id`
+2. **Se achou exatamente uma:** chama **`fin_criar_estorno`** (v2.3.4 — tool atômica): passa `original_transaction_id` + `amount_cents`. Herda account/category/subcategory da original automaticamente, marca `reversal_kind` como 'full' ou 'partial' baseado no amount. Sem precisar passar descrição (vira "Estorno: <original desc>") nem conta.
 3. **Se achou várias possíveis:** mostra pra pessoa: "Achei [N] despesas que podem ser a original desse estorno. Qual é? [lista]"
 4. **Se não achou nenhuma:** avisa: "Não achei a despesa original desse estorno (R$X em [estabelecimento]). Vou lançar como despesa negativa sem `reversal_of_id`. Tu pode editar depois se quiser."
 
@@ -140,18 +140,16 @@ Pra cada transação que parece parcelada:
 
 1. **Detectar parcela**: descrição contém "PARC X/Y", "1/10", "(1/12)", etc.
 2. **Identificar parcela 1 vs parcela N**:
-   - **Parcela 1 (1/N)**: lança via `fin_criar_despesa` com `installments: N` e `amount_cents = valor_da_parcela * N` (valor TOTAL da compra). O FIN cria as N parcelas automaticamente nas faturas seguintes. **NÃO passar `current_installment`** — deixar o default (1) acontecer sozinho.
-   - **Parcela N (N > 1, com histórico de parcela 1 já no FIN)**: já foi gerada pelo FIN quando você lançou a parcela 1. **NÃO LANCE.** Pula.
-   - **Parcela X (X > 1, sem histórico anterior no FIN — compra começou antes do FIN ser usado)**: **dois cenários, regra diferente:**
-     - **Cenário A — dia do parcelamento cai no mês atual ou futuro:** pode usar `installments: N, current_installment: X` com `tx_date` = data da parcela X (não da compra original). O FIN cria só as N-X+1 parcelas a partir daí. Funciona a partir da v2.3.2. Ex: Sephora parcela 5/10 vencendo 19/03/2026 → `installments: 10, current_installment: 5, tx_date: "2026-03-19", amount_cents: valor_total_original`.
-     - **Cenário B — o `tx_date` real da compra original não alinha com o mês atual (parcelas já avançaram e o dia da compra ficou pra trás):** NÃO usar `current_installment`. A rotulação sai errada (Bug #12). **Workaround:** criar N-X+1 despesas avulsas numeradas manualmente "(parcela X/N)", uma por mês, `tx_date` no dia de fechamento de cada fatura correspondente, e `invoice_cycle_end` na primeira pra forçar a fatura atual. Nenhum lançamento usa `installments`. Testado em 2026-04-12 com Ray-Ban e Smiles no Caixa Cartão.
-3. **REGRA — `current_installment`:** funciona a partir da v2.3.2, mas só quando `tx_date` é a data da parcela atual (não da compra original). Se tem desalinhamento de dias, usa o workaround de despesas avulsas do Cenário B acima.
+   - **Parcela 1 (1/N)**: lança via `fin_criar_despesa` com `installments: N` e `amount_cents = valor_da_parcela * N` (valor TOTAL da compra). O FIN cria as N parcelas automaticamente nas faturas seguintes. **NÃO passar `current_installment`** — deixar o default (1).
+   - **Parcela N (N > 1, com histórico da parcela 1 já no FIN)**: já foi gerada pelo FIN quando você lançou a parcela 1. **NÃO LANCE.** Pula.
+   - **Parcela X (X > 1, sem histórico anterior no FIN — compra começou antes do FIN ser usado)**: **caminho preferido v2.3.4:** passa `installments: N`, `current_installment: X` e **`original_purchase_date`** com a data REAL da compra original. O backend caminha pelos ciclos do cartão (usando closing_day/due_day) e coloca cada parcela (X, X+1, ..., N) na fatura correta automaticamente. Não precisa pensar em `tx_date` nem `invoice_cycle_end` — só informar a data da compra histórica.
+3. **Por que `original_purchase_date` é melhor que os workarounds anteriores:** antes o caller tinha que escolher entre (a) passar `tx_date` alinhado com o mês atual (anti-intuitivo) ou (b) lançar N-X+1 despesas avulsas numeradas manualmente. Ambos davam erro fácil. Agora é uma chamada só com os 3 campos + `original_purchase_date` e o backend coloca as parcelas nas faturas certas.
 4. **Como saber se é parcela 1 ou N?**
    - Se for "1/12" no nome → parcela 1 (lançar sem `current_installment`)
    - Se for "5/12" no nome → buscar no FIN se a parcela 1 (ou qualquer anterior) já existe:
      - Se existe → FIN já gerou 5/12, pular.
-     - Se não existe → compra começou antes do FIN. Aplicar a regra dos dois cenários acima (A: `current_installment` a partir da v2.3.2 se `tx_date` alinhado; B: despesas avulsas numeradas se desalinhado).
-   - Se for "N/N" (última parcela) e sem histórico no FIN → lançar como **despesa única à vista** com o valor da parcela. **Atenção:** se a `tx_date` original cai num ciclo antigo do cartão (ex: compra de dezembro cujo 5/5 tá vencendo agora), passar `invoice_cycle_end` = data de fechamento da fatura atual pra forçar a transação a cair na fatura certa. Sem isso, a despesa vai pra um ciclo passado e some da conciliação atual. Mesmo vale pra parcelas "do meio" (X/Y) cuja primeira parcela caia em ciclo muito antigo — a primeira parcela gerada pelo FIN pode cair fora da fatura atual se `tx_date` for antiga.
+     - Se não existe → compra começou antes do FIN. Use `original_purchase_date` + `current_installment` como no item 2 acima.
+   - Se for "N/N" (última parcela) e sem histórico no FIN → lançar como **despesa única à vista** com o valor da parcela. Passar `invoice_cycle_end` = data de fechamento da fatura atual se a `tx_date` original cai num ciclo antigo.
    - Se a descrição não diz qual parcela é → busca no FIN. Se já tem, é continuação. Se não tem, assume à vista.
 
 **Mostra na tabela de revisão:**
