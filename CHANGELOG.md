@@ -7,6 +7,20 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Passada de agnosticidade nas skills (2026-04-18 noite, segunda rodada)
+
+Auditoria honesta apontou que o plugin tava ~75-80% agnóstico mas com vazamentos sistemáticos de uso pessoal: bancos sempre nominais, esquema de categorias hardcoded, "v2.3.4" virando changelog inline em todos os SKILL.md, exemplos de fatura reproduzindo uma fatura real específica, exemplos de Preferências.md replicando preferências de quem escreveu. Nesta passada:
+
+- **`onboarding` Bloco 5 (Proposta de categorias)** — reescrito como template estrutural. Antes: lista de 11 categorias + 47 subs hardcoded (esquema do autor). Agora: princípio "deriva do questionário, não pré-popule" + formato vazio. Bloco 5 é a porta de entrada do plugin, vazamento aqui contaminava todo novo usuário.
+- **`onboarding` Bloco 6 + Modo B + erros** — exemplos de progresso e resumo trocados de "Caixa, Sicredi, Nubank, C6, C&A, Renner" pra placeholders. Exemplo de Wise USD generalizado pra "carteira USD / fintech internacional / broker em dólar". Pergunta sobre "consumo cultural pra profissão criativa" reformulada e marcada como opcional.
+- **`agents/financeiro.md`** — exemplo de `Preferências.md` virou template puro (antes: "PIX pra mãe → Família & Amigos > Mesada", "Streaming → Educação", "Higiene → Saúde" — todas decisões pessoais reproduzidas como exemplos canônicos). Lista de "erros comuns" cortada de 21 pra 12 essenciais (princípios universais, sem detalhe de versão). Confirmação trocou "Nubank débito" por "[conta] débito".
+- **`lancar`** — tabela de exemplos de parsing usa `[conta]` e `[cartão]` em vez de Nubank/C6/Itaú/Caixa. Caso Ray-Ban (compra real do autor) reescrito como template genérico de parcelamento retroativo. Valor "$487 na carteira" trocado por "$500". "Wise USD" no Caso A virou "[conta USD]". Regra "Pix em fim de semana" marcada como opcional (só aplicar pra quem concilia extrato). Erros comuns cortados de 16 pra 13 (removidos os v2.3.4-changelog).
+- **`extrato`** — "Conta Caixa" / "Caixa" trocados por "[conta]" no parser e nos exemplos de batch e resumo. Tolerância "R$5/mês de rendimento" generalizada pra "alguns reais ou ~0,5% do saldo, o que for menor", com sugestão de capturar o valor exato em `Preferências.md`. Itaú "Aplic Aut Mais" generalizado pra "vários bancos brasileiros têm aplicação automática diária". Saque ATM e debitar fatura usam placeholders. Toda menção a "v2.3.4" virou referência neutra ("use a tool X" em vez de "a partir de v2.3.4 use X").
+- **`conciliar`** — "C6 / 13/02 a 14/03/2026" trocado por placeholders nos exemplos de relatório, log de conciliação, pendências e resumo final. Tolerância e mensão a Itaú "Aplic Aut Mais" generalizadas igual em `extrato`.
+- **`fatura`** — "C6" e "13/02 a 14/03/2026" (uma fatura real do autor que tinha vazado pra 6 lugares como template) substituídos por placeholders em todos os exemplos. Pré-requisito #5 (parágrafo de 220 palavras sobre "Data da Fatura Inicial") reduzido pra 1 frase + ponteiro pra Casos especiais. "v2.3.4" removido das referências a `fin_criar_estorno` e `original_purchase_date`.
+
+Resultado da segunda rodada: o plugin agora apresenta ao novo usuário **estrutura, não conteúdo**. As decisões de categorização, nomes de banco e padrões de vida são montados a partir do que a pessoa diz — não pré-existem no template.
+
 ### Ajustes na skill `fatura` e estrutura de memória (2026-04-18 noite)
 
 Aprendizados de uma fatura Latam Itaú processada onde o cadastro do cartão (vencimento) estava errado e o CSV exportado pelo banco continha histórico cumulativo (não só a fatura corrente). A skill seguia em frente sem detectar; sem o print do app banco, o lançamento iria pro cartão errado.

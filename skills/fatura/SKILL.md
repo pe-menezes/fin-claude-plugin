@@ -15,7 +15,7 @@ allowed-tools: Read Write Edit Glob Grep Bash
 ## Quando usar
 
 - Pessoa quer processar **uma fatura de cartão de crédito inteira**
-- Frases tipo "processa essa fatura", "tá aí o OFX da fatura do C6", "fatura do mês do Nubank"
+- Frases tipo "processa essa fatura", "tá aí o OFX da fatura do [cartão]", "fatura do mês"
 - Conciliação retroativa de faturas
 
 ## Quando NÃO usar
@@ -32,7 +32,7 @@ allowed-tools: Read Write Edit Glob Grep Bash
 2. `~/.fin-plugin/config.json` existe → leia `financeiro_path`
 3. Os 4 arquivos em `Financeiro/` existem
 4. **Leu `fin://docs/guia` nessa sessão** (CRÍTICO pra essa skill — fatura tem várias regras de negócio do FIN)
-5. **Data da Fatura Inicial do cartão está anterior ao período da fatura que vai ser importada.** Isso é um cuidado crítico porque o `fin_criar_conta` seta automaticamente "Data da Fatura Inicial" = data de criação do cartão, e tudo que tiver `tx_date` anterior a isso fica **fora do cálculo do app** (apesar de a API somar). A tool `fin_editar_conta` NÃO expõe esse campo, então não dá pra corrigir via API — a pessoa precisa abrir o cartão no app e ajustar manualmente. **Antes de lançar qualquer fatura histórica**, pergunte pra pessoa: "A 'Data da Fatura Inicial' desse cartão no FIN app está anterior a [data da primeira transação da fatura]? Se for a primeira vez usando o FIN com esse cartão, ela provavelmente está com a data de criação do cartão — abre o app e ajusta pra uma data anterior antes de eu lançar." Se a pessoa confirmar que ajustou (ou que já estava certo), prossiga. Se não, pause e oriente.
+5. **Pra fatura histórica (anterior à criação do cartão no FIN), confira a "Data da Fatura Inicial" do cartão no app.** Se a primeira transação da fatura é anterior a essa data, o app não a soma corretamente (apesar da API contar). Quando relevante, oriente: "se essa fatura é anterior à criação do cartão no FIN, abre o app e ajusta a 'Data da Fatura Inicial' pra uma data anterior à primeira transação antes de eu lançar." Detalhe completo no caso especial "Primeira fatura histórica de um cartão novo no FIN".
 
 ## Diferenças críticas vs `extrato`
 
@@ -59,7 +59,7 @@ allowed-tools: Read Write Edit Glob Grep Bash
 
 Tenta identificar de qual cartão é a fatura:
 
-1. **Pelo nome do cartão no conteúdo** (ex: "Nubank Mastercard", "C6 Black", "Sicredi Woop")
+1. **Pelo nome do cartão no conteúdo** (ex: nome da bandeira/emissor que aparece no header da fatura)
 2. **Pelo BIN/IIN** (primeiros 6 dígitos do número do cartão se aparecer)
 3. **Pelo final do cartão** (últimos 4 dígitos)
 4. **Pelo nome do emissor**
@@ -92,10 +92,10 @@ Linhas fora do período da fatura corrente devem ser **descartadas com motivo ex
 **Compara com o cartão em `Contas e Cartões.md`:**
 
 ```
-Cartão: C6
-Fechamento cadastrado: dia 12
-Período REAL detectado: 13/02/2026 a 14/03/2026
-→ Variação: fechamento real foi dia 14 (esperado dia 12). Diferença +2 dias.
+Cartão: [nome]
+Fechamento cadastrado: dia X
+Período REAL detectado: DD/MM/YYYY a DD/MM/YYYY
+→ Variação: fechamento real foi dia X+N (esperado dia X). Diferença +N dias.
 ```
 
 Se variou ≤2 dias, **anota em `Contas e Cartões.md`** e segue:
@@ -103,7 +103,7 @@ Se variou ≤2 dias, **anota em `Contas e Cartões.md`** e segue:
 - Seção "Histórico de variação" → adiciona linha com data e motivo (se inferível: "fim de semana", "feriado", etc.)
 
 **Avisa a pessoa:**
-> Detectei: fatura do **C6**, período real **13/02/2026 a 14/03/2026** (fechamento observado dia 14, cadastrado é dia 12, diferença de 2 dias). Atualizei tua memória.
+> Detectei: fatura do **[cartão]**, período real **DD/MM/YYYY a DD/MM/YYYY** (fechamento observado dia X, cadastrado é dia Y, diferença de N dias). Atualizei tua memória.
 
 **Se variou >2 dias OU se nome do cartão na fatura é diferente do cadastrado:** **PAUSA, não segue.** Pergunta:
 
@@ -145,7 +145,7 @@ Pra cada transação que parece estorno (descrição contém "ESTORNO" / "DEVOLU
 
 1. **Achar a despesa original** no FIN:
    - `fin_buscar_transacoes` filtrando por mesmo cartão, valor próximo (positivo do mesmo módulo), descrição parecida, dentro de uma janela de tempo (tipicamente até 3 meses antes)
-2. **Se achou exatamente uma:** chama **`fin_criar_estorno`** (v2.3.4 — tool atômica): passa `original_transaction_id` + `amount_cents`. Herda account/category/subcategory da original automaticamente, marca `reversal_kind` como 'full' ou 'partial' baseado no amount. Sem precisar passar descrição (vira "Estorno: <original desc>") nem conta.
+2. **Se achou exatamente uma:** chama **`fin_criar_estorno`** (tool atômica): passa `original_transaction_id` + `amount_cents`. Herda account/category/subcategory da original automaticamente, marca `reversal_kind` como 'full' ou 'partial' baseado no amount. Sem precisar passar descrição (vira "Estorno: <original desc>") nem conta.
 3. **Se achou várias possíveis:** mostra pra pessoa: "Achei [N] despesas que podem ser a original desse estorno. Qual é? [lista]"
 4. **Se não achou nenhuma:** avisa: "Não achei a despesa original desse estorno (R$X em [estabelecimento]). Vou lançar como despesa negativa sem `reversal_of_id`. Tu pode editar depois se quiser."
 
@@ -166,7 +166,7 @@ Pra cada transação que parece parcelada:
 2. **Identificar parcela 1 vs parcela N**:
    - **Parcela 1 (1/N)**: lança via `fin_criar_despesa` com `installments: N` e `amount_cents = valor_da_parcela * N` (valor TOTAL da compra). O FIN cria as N parcelas automaticamente nas faturas seguintes. **NÃO passar `current_installment`** — deixar o default (1).
    - **Parcela N (N > 1, com histórico da parcela 1 já no FIN)**: já foi gerada pelo FIN quando você lançou a parcela 1. **NÃO LANCE.** Pula.
-   - **Parcela X (X > 1, sem histórico anterior no FIN — compra começou antes do FIN ser usado)**: **caminho preferido v2.3.4:** passa `installments: N`, `current_installment: X` e **`original_purchase_date`** com a data REAL da compra original. O backend caminha pelos ciclos do cartão (usando closing_day/due_day) e coloca cada parcela (X, X+1, ..., N) na fatura correta automaticamente. Não precisa pensar em `tx_date` nem `invoice_cycle_end` — só informar a data da compra histórica.
+   - **Parcela X (X > 1, sem histórico anterior no FIN — compra começou antes do FIN ser usado)**: **caminho preferido:** passa `installments: N`, `current_installment: X` e **`original_purchase_date`** com a data REAL da compra original. O backend caminha pelos ciclos do cartão (usando closing_day/due_day) e coloca cada parcela (X, X+1, ..., N) na fatura correta automaticamente. Não precisa pensar em `tx_date` nem `invoice_cycle_end` — só informar a data da compra histórica.
 3. **Por que `original_purchase_date` é melhor que os workarounds anteriores:** antes o caller tinha que escolher entre (a) passar `tx_date` alinhado com o mês atual (anti-intuitivo) ou (b) lançar N-X+1 despesas avulsas numeradas manualmente. Ambos davam erro fácil. Agora é uma chamada só com os 3 campos + `original_purchase_date` e o backend coloca as parcelas nas faturas certas.
 4. **Como saber se é parcela 1 ou N?**
    - Se for "1/12" no nome → parcela 1 (lançar sem `current_installment`)
@@ -215,7 +215,7 @@ Lê `Estabelecimentos.md`. Aplica regras conhecidas. Marca como "a categorizar" 
 Mostra UMA tabela com TUDO:
 
 ```
-=== FATURA: C6 — Período real 13/02 a 14/03/2026 — Vencimento 20/03 ===
+=== FATURA: [cartão] — Período real DD/MM a DD/MM/YYYY — Vencimento DD/MM ===
 
 === JÁ EXISTEM NO FIN (vão ser ignoradas) ===
 | Data       | Valor    | Descrição          | Categoria     |
@@ -241,17 +241,17 @@ Mostra UMA tabela com TUDO:
 ... [J linhas]
 
 === RESUMO ===
-- Cartão: C6
-- Período: 13/02 a 14/03/2026
-- Vencimento: 20/03/2026
-- Total de linhas na fatura: 87
-- Já existiam: 12
-- Parcelas FIN-gerenciadas: 8 (puladas)
-- Estornos: 2
-- Categorizadas: 47
-- A categorizar: 18
-- Suspeitos: 0
-- Total a lançar: 65
+- Cartão: [nome real]
+- Período: DD/MM a DD/MM/YYYY
+- Vencimento: DD/MM/YYYY
+- Total de linhas na fatura: N
+- Já existiam: M
+- Parcelas FIN-gerenciadas: P (puladas)
+- Estornos: E
+- Categorizadas: K
+- A categorizar: Q
+- Suspeitos: S
+- Total a lançar: T
 ```
 
 ### Passo 11 — Coletar input
@@ -272,9 +272,9 @@ Estrutura provável (confira na description):
 ```
 fin_fatura_transacoes(
   cartao_id: <id>,
-  periodo_inicio: "2026-02-13",
-  periodo_fim: "2026-03-14",
-  vencimento: "2026-03-20",
+  periodo_inicio: "YYYY-MM-DD",
+  periodo_fim: "YYYY-MM-DD",
+  vencimento: "YYYY-MM-DD",
   transacoes: [
     {
       data: "...",
@@ -282,7 +282,7 @@ fin_fatura_transacoes(
       descricao: "...",
       categoria_id: ...,
       subcategoria_id: ...,
-      parcelas: 12 (se aplicável),
+      parcelas: N (se aplicável),
       reversal_of_id: ... (se for estorno)
     },
     ...
@@ -302,7 +302,7 @@ Atualização de "fechamento observado" se variou (já feito no Passo 3).
 
 #### `Status Conciliação.md`
 ```
-| C6 | Fatura 13/02-14/03/2026 | Conciliado | 2026-04-12 | [FITIDs ou hashes] |
+| [cartão] | Fatura DD/MM-DD/MM/YYYY | Conciliado | YYYY-MM-DD | [FITIDs ou hashes] |
 ```
 
 #### `Preferências.md`
@@ -312,7 +312,7 @@ Decisões não-óbvias se houver.
 
 **Depois de lançar com sucesso**, pergunta:
 
-> Fatura lançada. Vencimento: 20/03/2026. Total: R$ 4.521,32. Quer que eu marque como paga agora? (vou usar `fin_pagar_fatura` — você precisa me dizer de qual conta saiu o pagamento)
+> Fatura lançada. Vencimento: DD/MM/YYYY. Total: R$ X. Quer que eu marque como paga agora? (vou usar `fin_pagar_fatura` — você precisa me dizer de qual conta saiu o pagamento)
 
 Se sim:
 - Pergunta a conta de débito
@@ -326,15 +326,15 @@ Se não:
 
 ```
 ✓ Fatura processada.
-- Cartão: C6
-- Período real: 13/02 a 14/03/2026 (variou +2 dias do ciclo cadastrado, atualizei)
-- Vencimento: 20/03/2026
-- Total: R$ 4.521,32
-- Lançadas: 65 transações
-- Estornos tratados: 2 (com reversal_of_id)
-- Parcelas auto-geradas pelo FIN puladas: 8
-- Aprendi 14 estabelecimentos novos.
-- Pago: ✓ via Conta C6 / SIM (ou: NÃO, lembro depois)
+- Cartão: [nome real]
+- Período real: DD/MM a DD/MM/YYYY (variou ±N dias do ciclo cadastrado, atualizei)
+- Vencimento: DD/MM/YYYY
+- Total: R$ X
+- Lançadas: T transações
+- Estornos tratados: E (com reversal_of_id)
+- Parcelas auto-geradas pelo FIN puladas: P
+- Aprendi K estabelecimentos novos.
+- Pago: ✓ via [conta] / SIM (ou: NÃO, lembro depois)
 ```
 
 ## Casos especiais

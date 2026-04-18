@@ -2,7 +2,7 @@
 name: lancar
 description: >
   Lançamento avulso de transação no FIN App. Entende instruções em linguagem
-  natural ("lança 45 no mercado, débito Nubank", "20 conto no pão, dinheiro",
+  natural ("lança 45 no mercado, débito [conta]", "20 conto no pão, dinheiro",
   "saquei 200 no Itaú", "recebi 4mil do cliente X", "vendi $100 e veio R$540",
   "tô com $487 na carteira"), aplica regras aprendidas de Estabelecimentos.md,
   trata dinheiro vivo, saque, câmbio USD/BRL e ajuste de saldo corretamente,
@@ -44,22 +44,22 @@ Pega `$ARGUMENTS` (ou a fala livre da pessoa) e extrai:
 - **Data:** hoje (default), ou data explícita se mencionada ("ontem", "dia 5", "10 de março")
 - **Observação:** qualquer detalhe adicional
 
-**Exemplos de parsing:**
+**Exemplos de parsing** (use os nomes reais de conta/cartão da pessoa, esses são só placeholders):
 
 | Frase | Tipo | Valor | Estabelecimento | Conta |
 |---|---|---|---|---|
-| "lança 45 no mercado, débito Nubank" | despesa | R$45 | mercado | Nubank (débito) |
-| "20 conto no pão, dinheiro" | despesa | R$20 | padaria/pão | Dinheiro |
-| "120 no posto, crédito C6" | despesa | R$120 | posto | C6 (crédito) |
+| "lança 45 no mercado, débito [conta]" | despesa | R$45 | mercado | [conta] (débito) |
+| "20 conto no pão, dinheiro" | despesa | R$20 | padaria/pão | dinheiro vivo |
+| "120 no posto, crédito [cartão]" | despesa | R$120 | posto | [cartão] (crédito) |
 | "recebi 4 mil do cliente X" | receita | R$4000 | cliente X | (perguntar conta destino) |
-| "transferi 500 do Nubank pro C6" | transferência | R$500 | — | Nubank → C6 |
-| "saquei 200 no Itaú" | **transferência** | R$200 | — | Itaú → Dinheiro |
-| "PIX 50 pra mãe" | despesa OU transferência | R$50 | mãe | (perguntar conta origem) |
+| "transferi 500 do [conta A] pro [conta B]" | transferência | R$500 | — | A → B |
+| "saquei 200 no [conta]" | **transferência** | R$200 | — | conta → dinheiro vivo |
+| "PIX 50 pra [pessoa]" | despesa OU transferência | R$50 | [pessoa] | (perguntar conta origem; perguntar se é despesa ou transfer entre contas próprias) |
 | "vendi $100 e veio R$540" | **câmbio** (vender USD) | $100 / R$540 | — | Conta USD → Conta BRL |
 | "comprei $50 por R$280" | **câmbio** (comprar USD) | R$280 / $50 | — | Conta BRL → Conta USD |
-| "tô com $487 na carteira" | **ajuste de saldo** | $487 (absoluto) | — | Conta USD |
-| "gastei $20 no AliExpress" | **ajuste de saldo** (subtrai) | -$20 | AliExpress | Conta USD |
-| "ajusta o Caixa pra 1234,56" | **ajuste de saldo** | R$1234,56 (absoluto) | — | Conta BRL |
+| "tô com $500 na carteira" | **ajuste de saldo** | $500 (absoluto) | — | Conta USD |
+| "gastei $20 em [merchant]" | **despesa USD** | $20 | [merchant] | Conta USD |
+| "ajusta a [conta] pra 1234,56" | **ajuste de saldo** | R$1234,56 (absoluto) | — | Conta BRL |
 
 **Notação numérica BR:**
 - "20 conto" / "20 mango" / "20 pila" = R$20
@@ -99,26 +99,26 @@ Se ela disser "não, é despesa mesmo" (caso raro, tipo taxa de saque), aceita e
 PIX pra alguém pode ser **despesa** (se for pagamento) ou **transferência** (se for entre contas próprias) — depende do contexto.
 
 - "PIX 50 pra padaria" → despesa
-- "PIX 100 pra mãe" → despesa (categoria "Família & Amigos > Mesada" ou similar, conforme `Estabelecimentos.md`)
-- "PIX 500 do Nubank pro Itaú" → transferência
+- "PIX 100 pra [parente/amigo]" → pode ser despesa (presente, ajuda, divisão de conta) ou transferência (se a conta destino é da pessoa). Não assume categoria — segue regra de `Estabelecimentos.md` se houver, ou pergunta.
+- "PIX 500 do [conta A] pro [conta B]" (ambas próprias) → transferência
 
 Se ambíguo, pergunta:
-> 50 pra mãe é despesa (vai gastar) ou transferência (entre tuas contas)?
+> 50 pra [destinatário] é despesa (vai gastar) ou transferência (entre tuas contas)?
 
 ### Passo 4.5 — Tratamento especial: USD, câmbio e ajuste de saldo
 
-**Pré-requisito:** se a pessoa tem alguma conta USD no FIN, leia a **seção 10 do `fin://docs/guia`** uma vez por sessão antes de operar qualquer coisa em USD. Sem isso, você comete erros de modelo.
+**Pré-requisito:** se a pessoa tem alguma conta USD no FIN, leia a seção sobre USD em `fin://docs/guia` uma vez por sessão antes de operar qualquer coisa em USD. Sem isso, você comete erros de modelo.
 
-#### Regras de negócio críticas (do FIN v2.3.4)
+#### Regras de negócio críticas
 
-1. **`fin_criar_despesa` ACEITA contas USD** (a partir de v2.3.4). `amount` sempre é gravado em BRL (fonte da verdade pra relatórios), mas a tool aceita `original_amount_cents` + `original_currency: "USD"` pra preservar o valor nativo. Dois modos:
-   - **Modo (a) — pessoa informa o BRL exato:** passa `amount_cents` (BRL que saiu) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real que saiu da conta (Wise mostra, extrato do banco mostra).
-   - **Modo (b) — pessoa só sabe a cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação BRL por 1 USD em 1/10000, ex: 51023 = R$5,1023/USD). Backend calcula o BRL. Use quando a pessoa só tem a cotação estimada.
-   - **NUNCA** passa só `amount_cents` numa conta USD. Retorna 422.
-   - O que perguntar pra pessoa: *"Gastou US$X na [Conta USD] — sabe quanto saiu em reais da tua conta, ou prefere estimar com uma cotação?"*
+1. **`fin_criar_despesa` aceita contas USD.** `amount` sempre é gravado em BRL (fonte da verdade pra relatórios), mas a tool aceita `original_amount_cents` + `original_currency: "USD"` pra preservar o valor nativo. Dois modos:
+   - **Modo BRL exato:** passa `amount_cents` (BRL que saiu) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real que saiu da conta (extrato/app da conta USD mostra).
+   - **Modo via cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação BRL por 1 USD em 1/10000, ex: 51023 = R$5,1023/USD). Backend calcula o BRL. Use quando a pessoa só tem a cotação estimada.
+   - **Nunca** passa só `amount_cents` numa conta USD. Retorna 422.
+   - O que perguntar: *"Gastou US$X em [conta USD] — sabe quanto saiu em reais, ou prefere estimar com uma cotação?"*
 2. **Câmbio é uma operação atômica** via `fin_cambio`. Cria 2 transações vinculadas (uma despesa na origem, uma receita no destino), ambas com categoria "Câmbio" e um `exchange_pair_id` compartilhado. Se uma falhar, a outra é desfeita.
-3. **O FIN nunca usa cotação automática ao gravar.** Nem em `fin_cambio`, nem em `fin_criar_despesa` USD. A pessoa informa valores manualmente porque a taxa real varia (Wise spot ≠ casa de câmbio ≠ banco). Exceção: `fin_patrimonio` converte USD→BRL dinamicamente **só na leitura** pra responder "quanto eu tenho hoje em reais" — essa é uma pergunta de balance, não de transação.
-4. **`fin_ajustar_saldo_conta` retorna `balance_cents_calculado` direto** (a partir de v2.3.4). Antes a gente tinha que re-chamar `fin_saldos` depois pra validar. Agora a tool calcula o saldo exibido pós-ajuste e devolve junto com `delta_liquido_cents`. **Ainda é armadilha** que a tool sobrescreve `initial_balance`, não o saldo exibido — mas agora você não precisa calcular nada manualmente: passa o saldo desejado e confere no retorno se `balance_cents_calculado` bateu com o esperado. Se não bateu, investiga. Ver **Caso B/C** abaixo.
+3. **O FIN nunca usa cotação automática ao gravar.** Nem em `fin_cambio`, nem em `fin_criar_despesa` USD. A pessoa informa valores manualmente porque a taxa real varia (spot da fintech ≠ casa de câmbio ≠ banco). Exceção: `fin_patrimonio` converte USD→BRL dinamicamente **só na leitura** pra responder "quanto eu tenho hoje em reais" — pergunta de balance, não de transação.
+4. **`fin_ajustar_saldo_conta` retorna `balance_cents_calculado`** direto na resposta. Você passa o saldo absoluto desejado e confere no retorno se bateu. Se não bateu, investiga (tem tx faltando/sobrando).
 5. **Câmbio só funciona entre 2 contas cash de moedas diferentes** (uma BRL, outra USD). Cartão de crédito não é suportado.
 6. **Cartão de crédito em USD não é suportado** no v0.
 
@@ -133,25 +133,16 @@ Se ambíguo, pergunta:
 **Fluxo:**
 1. Identifica direção (vender = USD→BRL, comprar = BRL→USD)
 2. Identifica as duas contas (`from_account_name`, `to_account_name`):
-   - **Vender:** from = conta USD da pessoa (Wise, conta nos EUA, carteira USD), to = conta BRL
+   - **Vender:** from = conta USD da pessoa, to = conta BRL
    - **Comprar:** from = conta BRL, to = conta USD
    - Se a pessoa não disser explicitamente qual conta, lê `Contas e Cartões.md` e pergunta se houver mais de uma opção
 3. Captura **as duas quantias** (em centavos da moeda de cada conta):
    - `amount_from_cents` = quanto sai da origem
    - `amount_to_cents` = quanto entra no destino
    - Se a pessoa só falou uma das duas (ex: "vendi $100" sem dizer quanto recebeu), **pergunta a outra**: "Vendeu $100 — quanto veio em reais?"
-4. Confirma em **uma linha**:
-   > Câmbio: vender US$100 → R$540 / Wise USD → Itaú / hoje. Confirma?
-5. Chama `fin_cambio` com os campos:
-   ```
-   {
-     "from_account_name": "Wise USD",
-     "to_account_name": "Itaú",
-     "amount_from_cents": 10000,
-     "amount_to_cents": 54000,
-     "description": "Venda de dólar"
-   }
-   ```
+4. Confirma em **uma linha** (use os nomes reais das contas da pessoa):
+   > Câmbio: vender US$100 → R$540 / [conta USD] → [conta BRL] / hoje. Confirma?
+5. Chama `fin_cambio` com os campos correspondentes (`from_account_name`, `to_account_name`, `amount_from_cents`, `amount_to_cents`, `description`).
 6. Sucesso: avisa que criou as 2 transações vinculadas em "Câmbio".
 
 **Avisos importantes:**
@@ -161,43 +152,40 @@ Se ambíguo, pergunta:
 
 #### Caso B — Ajustar saldo manualmente (USD ou BRL)
 
-**O que mudou (v2.3.4):** `fin_ajustar_saldo_conta` agora retorna `balance_cents_calculado` e `delta_liquido_cents` diretamente na resposta. Você não precisa mais fazer o roundtrip manual calculando `initial_balance_novo`. Só passa o saldo que a pessoa quer ver e confere no retorno.
+`fin_ajustar_saldo_conta` retorna `balance_cents_calculado` e `delta_liquido_cents` direto na resposta. Você passa o saldo absoluto que a pessoa quer ver e confere no retorno.
 
-**Armadilha conhecida:** a tool sobrescreve `initial_balance`, não o saldo exibido. Mas agora o backend calcula o saldo pós-ajuste pra você e devolve. Se `balance_cents_calculado` (no retorno) não bater com o desejado, investiga — tem transação faltando/sobrando.
+**Armadilha conceitual:** a tool sobrescreve `initial_balance`, não o saldo exibido. Mas o backend calcula o saldo pós-ajuste e devolve. Se `balance_cents_calculado` não bater com o desejado, investiga — tem tx faltando/sobrando.
 
 **Padrões de fala:**
-- "Tô com $487 na carteira agora" → ajuste pra valor exibido final = $487
-- "Agora tenho $1200 na Wise" → ajuste pra $1200
-- "Achei mais $50, total tá em $537" → ajuste pra $537
-- "Ajusta o Caixa pra 1234,56" → ajuste pra R$1234,56
-- "O saldo do Itaú tá errado, tá em R$2000 e devia ser R$2150" → ajuste pra R$2150
+- "Tô com $500 na carteira agora" → ajuste pra valor exibido final = $500
+- "Agora tenho $1200 em [conta USD]" → ajuste pra $1200
+- "Achei mais $50, total tá em $550" → ajuste pra $550
+- "Ajusta a [conta] pra 1234,56" → ajuste pra R$1234,56
+- "O saldo do [conta] tá errado, tá em R$2000 e devia ser R$2150" → ajuste pra R$2150
 
 **Fluxo simplificado (vale pra BRL e USD):**
 1. Identifica a conta.
 2. Confirma com a pessoa em uma linha:
-   > Ajustar saldo: Wise USD → $487. Confirma?
-3. Chama `fin_ajustar_saldo_conta` passando o **saldo desejado** em centavos:
-   ```
-   { "account_name": "Wise USD", "amount_cents": 48700 }
-   ```
+   > Ajustar saldo: [conta USD] → $500. Confirma?
+3. Chama `fin_ajustar_saldo_conta` passando o **saldo desejado** em centavos da moeda da conta.
 4. **Valida pelo retorno da tool**: confere que `balance_cents_calculado` bate com o desejado.
    - **Se bateu:** avisa o saldo novo e segue.
-   - **Se não bateu:** a tool aceitou mas o saldo exibido ficou diferente porque a conta tem transações que fazem o cálculo `initial_balance + Σ(tx)` não dar no valor que a pessoa quer. Não tenta de novo — explica pra pessoa e investiga antes (provavelmente tem transação faltando ou sobrando no FIN).
+   - **Se não bateu:** a tool aceitou mas o saldo exibido ficou diferente porque a conta tem transações que fazem o cálculo `initial_balance + Σ(tx)` não dar no valor que a pessoa quer. Não tenta de novo — explica pra pessoa e investiga (provavelmente tem tx faltando ou sobrando no FIN).
 
 **Se precisar de valor "delta" (ex: "achei mais $50" sem dizer total):**
 1. Lê `fin_saldos` pra pegar o saldo exibido atual.
 2. Calcula `saldo_desejado = atual + 50`.
 3. Segue fluxo acima.
 
-**Gasto em USD:** NÃO é mais caso de ajuste de saldo. A partir de v2.3.4, use `fin_criar_despesa` direto com `original_amount_cents` + `original_currency: "USD"`. Ver regra de negócio #1 acima.
+**Gasto em USD não é caso de ajuste de saldo** — use `fin_criar_despesa` direto com `original_amount_cents` + `original_currency: "USD"`. Ver regra de negócio #1 acima.
 
 #### Caso C — Ajustar saldo BRL pra correção
 
 Mesmo fluxo do Caso B — `fin_ajustar_saldo_conta` funciona pra BRL igualzinho.
 
-> "Ajusta o saldo do Caixa pra R$1234,56"
+> "Ajusta o saldo da [conta] pra R$1234,56"
 
-1. Confirma: *Ajustar saldo: Caixa → R$1234,56. Confirma?*
+1. Confirma: *Ajustar saldo: [conta] → R$1234,56. Confirma?*
 2. Chama `fin_ajustar_saldo_conta` com `amount_cents: 123456`.
 3. Confere `balance_cents_calculado` no retorno.
 
@@ -242,22 +230,22 @@ Lê `Contas e Cartões.md`. Pra cada conta/cartão mencionado:
 
 **Antes de qualquer mutação no FIN, sempre confirma em uma linha.**
 
-Formato:
+Formato (use os nomes reais das contas/cartões da pessoa):
 
 ```
-Despesa R$45 / Mercado / Alimentação > Mercado / Nubank débito / hoje. Confirma?
-```
-
-```
-Receita R$4000 / Cliente X / Trabalho > Avulsos / Conta Caixa / hoje. Confirma?
+Despesa R$45 / Mercado / Alimentação > Mercado / [conta] débito / hoje. Confirma?
 ```
 
 ```
-Transferência R$500 / Nubank → C6 / hoje. Confirma?
+Receita R$4000 / Cliente X / Trabalho > Avulsos / [conta] / hoje. Confirma?
 ```
 
 ```
-Saque R$200 / Itaú → Dinheiro (transferência) / hoje. Confirma?
+Transferência R$500 / [conta A] → [conta B] / hoje. Confirma?
+```
+
+```
+Saque R$200 / [conta] → dinheiro vivo (transferência) / hoje. Confirma?
 ```
 
 A pessoa responde sim/não/ajuste. Se ajuste, ajusta e re-confirma.
@@ -299,7 +287,7 @@ Depois do lançamento bem-sucedido:
 
 Curta, direta:
 
-> ✓ Lançado. R$45 em Mercado / Alimentação > Mercado / Nubank débito.
+> ✓ Lançado. R$45 em Mercado / Alimentação > Mercado / [conta] débito.
 > Aprendi: "mercado xyz" → Alimentação > Mercado.
 
 Sem floreio. Pessoa quer saber que deu certo e seguir.
@@ -322,29 +310,29 @@ Se a pessoa disser **"parcelado em N vezes"** ou "X parcelas":
 
 - O FIN tem suporte nativo a parcelamento. Passa `installments: N` em `fin_criar_despesa`.
 - **NÃO crie N transações manualmente.** O FIN gera as parcelas automaticamente.
-- Confirmação especial:
-  > Despesa R$1200 em 12x de R$100 / Notebook / Tecnologia > Eletrônicos / C6 crédito. Primeira parcela cai na fatura que fecha em [data]. Confirma?
+- Confirmação especial (use os nomes reais):
+  > Despesa R$1200 em 12x de R$100 / [merchant] / [Categoria] > [Sub] / [cartão] crédito. Primeira parcela cai na fatura que fecha em [data]. Confirma?
 
 **Parcelamento retroativo (compra antiga já em andamento):**
 
-> "Minhas Ray-Bans, comprei em dezembro 10x, tô na 4ª parcela"
+> "Comprei [coisa] em [mês passado] em N vezes, tô na X parcela agora"
 
-A partir de v2.3.4, o caminho intuitivo é passar `original_purchase_date` + `installments` + `current_installment`:
+O caminho intuitivo é passar `original_purchase_date` + `installments` + `current_installment`:
 
 ```
 {
-  "description": "Ray-Ban",
-  "amount_cents": 137000,
-  "installments": 10,
-  "current_installment": 4,
-  "original_purchase_date": "2025-12-23",
-  "account_name": "Caixa Cartão",
-  "category_name": "Pessoal",
-  "subcategory_name": "Acessórios"
+  "description": "[merchant]",
+  "amount_cents": [valor TOTAL da compra em centavos],
+  "installments": [N total de parcelas],
+  "current_installment": [parcela em que a pessoa está],
+  "original_purchase_date": "[data REAL da compra original, YYYY-MM-DD]",
+  "account_name": "[nome do cartão]",
+  "category_name": "[Categoria]",
+  "subcategory_name": "[Sub]"
 }
 ```
 
-O backend lê o cutoff do cartão e calcula em qual fatura a parcela 4 cai, 5, 6, ..., 10. Sem precisar pensar em `tx_date` nem em `invoice_cycle_end`. **Esse é o caminho preferido.**
+O backend lê o cutoff do cartão e calcula em qual fatura cada parcela (X, X+1, ..., N) cai. Sem precisar pensar em `tx_date` nem em `invoice_cycle_end`. **Esse é o caminho preferido.**
 
 O workaround antigo (lançar cada parcela avulsa numerada manualmente com `invoice_cycle_end` forçado) ainda funciona mas fica como fallback — use só se `original_purchase_date` não conseguir resolver por algum motivo específico.
 
@@ -353,7 +341,7 @@ O workaround antigo (lançar cada parcela avulsa numerada manualmente com `invoi
 Se a pessoa disser **"foi estornado"** ou "veio estorno de X":
 
 - **Estorno NÃO é receita.** É uma despesa vinculada à transação original via `reversal_of_id`.
-- **v2.3.4 simplificou:** se você já sabe o UUID da original (achou via `fin_buscar_transacoes` ou `fin_fatura_transacoes`), usa `fin_criar_estorno` — tool atômica que herda account/category/subcategory da original automaticamente. Só precisa passar `original_transaction_id` + `amount_cents`.
+- Se você já sabe o UUID da original (achou via `fin_buscar_transacoes` ou `fin_fatura_transacoes`), usa `fin_criar_estorno` — tool atômica que herda account/category/subcategory da original automaticamente. Só precisa passar `original_transaction_id` + `amount_cents`.
 - Fluxo:
   1. Busca a original com `fin_buscar_transacoes` (valor + estabelecimento próximos, janela de 3 meses).
   2. Mostra: *"Achei a despesa original (R$100, Lojas X, dia Y). Vou criar o estorno apontando pra ela. Confirma?"*
@@ -376,19 +364,21 @@ Se a pessoa mencionar data ("ontem", "anteontem", "dia 5", "10 de março"), pars
 
 Pra "essa semana" / "mês passado" / coisas vagas → pergunta o dia exato.
 
-### Pix em fim de semana / feriado (regra D+1 útil)
+### Pix em fim de semana / feriado (regra D+1 útil — opcional)
 
-Pix feito em sábado, domingo ou feriado é creditado no extrato bancário com **data D+1 útil** (convenção bancária brasileira). Exemplo: Pix feito sábado 18/04 sai pro destinatário com data de crédito segunda 20/04.
+**Use essa regra só se a pessoa concilia extrato com frequência.** Pra quem só lança soltando data atual, o impacto é nulo.
 
-**Regra pra lançamento:**
+Pix feito em sábado, domingo ou feriado costuma ser creditado no extrato bancário com **data D+1 útil** (convenção bancária brasileira). Exemplo: Pix feito sábado vai com data de crédito segunda.
 
-- Se a pessoa falar *"acabei de fazer um Pix"* num sábado/domingo/feriado → **lança com a data do próximo dia útil**, não a data de hoje. Isso garante que bate com o extrato do banco quando conciliar.
-- Confirmação na linha deve deixar explícita: *"...data 20/04 (próximo dia útil, padrão Pix fim de semana). Confirma?"*
-- Se a pessoa quiser lançar com a data real em que fez (sábado), ela tem que pedir explicitamente — e alertar que vai divergir do extrato.
+**Quando aplicar:**
 
-Isso vale pra **entradas** também: se alguém fez Pix pro Pedro no sábado, a entrada vai aparecer no extrato com data de segunda.
+- Se a pessoa falar *"acabei de fazer um Pix"* num sábado/domingo/feriado **e tem hábito de conciliar com extrato** → **lança com a data do próximo dia útil**, não a data de hoje. Garante que bate com o extrato quando conciliar.
+- Confirmação na linha deve deixar explícita: *"...data [próximo dia útil] (padrão Pix fim de semana). Confirma?"*
+- Se a pessoa quiser lançar com a data real em que fez (sábado), ela pede explicitamente — e tu alerta que vai divergir do extrato.
 
-Regra não vale pra TED, débito automático, boleto — esses têm suas próprias convenções e normalmente o banco já mostra a data certa pra pessoa copiar.
+Vale pra entradas também (Pix recebido sábado aparece no extrato segunda).
+
+Regra não vale pra TED, débito automático, boleto — esses têm convenções próprias e o banco mostra a data certa.
 
 ### Valor ambíguo
 
@@ -403,22 +393,19 @@ Se ela disser "qualquer lugar, sei lá", aceita "Almoço" como descrição gené
 
 ## Erros comuns que você deve evitar
 
-1. **Lançar saque como despesa** → saque é transferência banco → Dinheiro
-2. **Lançar estorno como receita** → estorno é despesa. Use `fin_criar_estorno` se já sabe o UUID da original (herda tudo automaticamente); senão `fin_criar_despesa` com `reversal_of_id` manual.
-3. **Criar parcelas manualmente** → o FIN cria automático via `installments`. Pra compra antiga em andamento (parcela X/N com X > 1), o caminho preferido v2.3.4 é passar `original_purchase_date` junto — o backend coloca cada parcela na fatura certa usando o cutoff do cartão. Só cai em workaround manual se `original_purchase_date` falhar por algum motivo específico.
+1. **Lançar saque como despesa** → saque é transferência banco → conta de dinheiro vivo
+2. **Lançar estorno como receita** → estorno em cartão é despesa. Use `fin_criar_estorno` se já sabe o UUID da original.
+3. **Criar parcelas manualmente** → o FIN cria automático via `installments`. Pra compra antiga em andamento (parcela X/N com X > 1), passa `original_purchase_date` junto.
 4. **Aplicar regra aprendida sem mostrar** → sempre diz "apliquei tua regra: X → Y"
 5. **Atualizar regra existente sem confirmar** → se a pessoa categorizou diferente dessa vez, pergunta se é exceção ou nova regra
 6. **Aprender estabelecimento depois de uma única ocorrência sem confirmação** → sempre confirma a categoria antes de gravar
 7. **Não confirmar antes de criar** → toda mutação tem confirmação em uma linha
 8. **Encher linguiça** → resposta é curta. "✓ Lançado. [resumo]" e fim.
-9. **Pedir confirmação com 5 linhas de texto** → uma linha basta
-10. **Esquecer de atualizar `Estabelecimentos.md`** → toda transação com estabelecimento novo gera linha nova
-11. **Passar só `amount_cents` numa conta USD** → `fin_criar_despesa` exige `original_amount_cents` + `original_currency: "USD"` quando a conta é USD. Modo (a): + BRL exato. Modo (b): + `exchange_rate_cents_per_unit`. Ver Regra #1 do Passo 4.5.
-12. **Calcular `initial_balance_novo` manualmente antes de `fin_ajustar_saldo_conta`** → não precisa mais a partir de v2.3.4. Passa o saldo desejado direto, valida `balance_cents_calculado` no retorno. Se não bater, investiga (tem tx faltando/sobrando).
-13. **Inventar cotação no câmbio** → o FIN não usa cotação automática. Se a pessoa só falou uma das duas quantias, pergunta a outra
-14. **Lançar câmbio como 2 transferências separadas** → câmbio é `fin_cambio` (atômico, 1 chamada, 2 transações vinculadas com `exchange_pair_id`)
-15. **Tentar câmbio com cartão de crédito** → só funciona entre 2 contas cash de moedas diferentes
-16. **Buscar transação original do estorno manualmente e chamar `fin_criar_despesa` com `reversal_of_id`** → usa `fin_criar_estorno` (atômico, herda account/category/subcategory).
+9. **Esquecer de atualizar `Estabelecimentos.md`** → toda transação com estabelecimento novo gera linha nova
+10. **Passar só `amount_cents` numa conta USD** → exige `original_amount_cents` + `original_currency: "USD"`. Ver Passo 4.5.
+11. **Inventar cotação no câmbio** → o FIN não usa cotação automática. Se a pessoa só falou uma das duas quantias, pergunta a outra.
+12. **Lançar câmbio como 2 transferências separadas** → câmbio é `fin_cambio` (atômico, 1 chamada).
+13. **Tentar câmbio com cartão de crédito** → só funciona entre 2 contas cash de moedas diferentes.
 
 ## Tom
 

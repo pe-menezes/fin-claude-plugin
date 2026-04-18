@@ -121,7 +121,7 @@ Depois do parse, normaliza tudo num formato interno:
     descricao_original: "MERCADO XYZ LTDA",
     descricao_normalizada: "mercado xyz",
     tipo: "debito",
-    conta: "Conta Caixa"
+    conta: "[nome da conta]"
   },
   ...
 ]
@@ -227,14 +227,14 @@ Se ela disser "Loja Nova SA é tudo Pessoal > Roupas", aprende.
 
 ### Passo 8 — Lançar em batch
 
-**A partir de v2.3.4**, use `fin_criar_transacoes_batch` pra lançar até 100 rows de uma vez (mix de expense/income/transfer). Bate em 1 chamada o que antes eram N chamadas sequenciais.
+Use `fin_criar_transacoes_batch` pra lançar até 100 rows de uma vez (mix de expense/income/transfer). Bate em 1 chamada o que seria N chamadas sequenciais.
 
 ```
 {
   "transactions": [
-    { "type": "expense", "amount_cents": 5000, "description": "Mercado XYZ", "account_name": "Caixa", "category_name": "Alimentação", "subcategory_name": "Mercado" },
-    { "type": "income", "amount_cents": 500000, "description": "Salário", "account_name": "Caixa" },
-    { "type": "transfer", "amount_cents": 20000, "description": "Saque 24h", "account_from": "Caixa", "account_to": "Dinheiro" },
+    { "type": "expense", "amount_cents": 5000, "description": "Mercado XYZ", "account_name": "[conta]", "category_name": "Alimentação", "subcategory_name": "Mercado" },
+    { "type": "income", "amount_cents": 500000, "description": "Salário", "account_name": "[conta]" },
+    { "type": "transfer", "amount_cents": 20000, "description": "Saque 24h", "account_from": "[conta]", "account_to": "[conta dinheiro vivo]" },
     ...
   ]
 }
@@ -263,9 +263,9 @@ Pra cada estabelecimento NOVO categorizado pela pessoa, adiciona linha:
 ```
 
 #### `Status Conciliação.md`
-Adiciona linha pra esse processamento:
+Adiciona linha pra esse processamento (use os nomes reais da pessoa):
 ```
-| Conta Caixa | 2026-03-01 a 2026-03-31 | Conciliado | 2026-04-12 | [lista de FITIDs ou hashes] |
+| [conta] | YYYY-MM-DD a YYYY-MM-DD | Conciliado | YYYY-MM-DD | [lista de FITIDs ou hashes] |
 ```
 
 #### `Preferências.md`
@@ -275,13 +275,13 @@ Se a pessoa deu uma regra explícita ("loja nova SA é sempre roupa"), adiciona 
 
 ```
 ✓ Extrato processado.
-- Conta: Caixa
-- Período: 2026-03-01 a 2026-03-31
-- Total de linhas no arquivo: 64
-- Já existiam no FIN: 17 (puladas)
-- Lançadas agora: 47
-- Falhas: 0
-- Aprendi 8 estabelecimentos novos.
+- Conta: [nome real]
+- Período: YYYY-MM-DD a YYYY-MM-DD
+- Total de linhas no arquivo: N
+- Já existiam no FIN: M (puladas)
+- Lançadas agora: K
+- Falhas: F
+- Aprendi X estabelecimentos novos.
 - Status Conciliação atualizado.
 ```
 
@@ -304,38 +304,42 @@ Pix feito sábado/domingo/feriado é creditado com **data D+1 útil** no extrato
 
 O saldo atual do banco já reflete o Pix mesmo antes da data de crédito (ele sai como "agendado/em processamento"). O saldo do FIN também reflete, porque o FIN soma todas as tx lançadas sem cutoff de data.
 
-### Fluxo simplificado (v2.3.4)
+### Fluxo simplificado
 
 1. Pergunta pra pessoa: *"Qual é o saldo atual do app do [banco] agora? (print da tela inicial, não a linha do extrato)"*. Se o extrato tinha linha de "saldo final", usa como referência mas **não confia** — o saldo "agora" pode já incluir movimentos pós-corte do extrato.
-2. Chama `fin_saldos` pra pegar o saldo exibido atual. Se já bater (tolerância R$5, ver abaixo), nada a fazer — avisa *"✓ Saldo já bate, R$X,XX"* e fim.
+2. Chama `fin_saldos` pra pegar o saldo exibido atual. Se já bater (dentro da tolerância de ruído, ver abaixo), nada a fazer — avisa *"✓ Saldo já bate, R$X,XX"* e fim.
 3. Se não bater, **primeiro investiga**: pergunta *"tá dando R$X a mais/menos — falta lançar alguma coisa desde o último movimento do extrato, ou tem duplicata?"*.
 4. Se a pessoa confirmar que o saldo inicial do período estava errado no FIN (típico em primeira importação), chama `fin_ajustar_saldo_conta` passando o **saldo desejado** direto em `amount_cents`. A tool retorna `balance_cents_calculado` — confere se bateu. Se bateu, segue. Se não bateu, investiga (tem transação faltando/sobrando que não é resolvida por ajuste de `initial_balance` sozinho).
 
 ### Tolerância de ruído de rendimento
 
-Bancos que têm aplicação automática (Itaú "Aplic Aut Mais", Santander equivalente, etc.) agregam rendimentos de forma que nem sempre bate 1:1 com o extrato. Divergência de até **~R$5 acumulada por mês** em rendimentos de aplicação automática é normal e **não deve travar a conciliação**. Nomeia como "divergência de rendimento residual" e segue. Se a divergência for maior que isso ou concentrada em uma data específica (não só rendimento), aí sim investiga.
+Vários bancos brasileiros têm aplicação automática diária (rendimento que pinga em micro-valores). Esse rendimento agregado nem sempre bate 1:1 com o extrato exportado, especialmente quando o lançamento individual é fração de centavo arredondada.
 
-**O que mudou de antes:** não precisa mais calcular `initial_balance_novo` manualmente nem chamar `fin_listar_contas` pra pegar `initial_balance_atual`. A tool faz a conta e devolve o saldo exibido pós-ajuste. Se `balance_cents_calculado` != desejado, é sinal de problema de dados — investiga em vez de insistir.
+Use uma **tolerância pequena** (alguns reais ou ~0,5% do saldo, o que for menor) como ruído aceitável. Se a divergência cabe nessa tolerância e tu identifica que é só rendimento, nomeia como "divergência de rendimento residual" e segue. Se for maior, ou concentrada em uma data específica (não só rendimento agregado), aí sim investiga.
+
+Se a pessoa quer um valor de tolerância fixo, pergunta uma vez e grava em `Preferências.md` (ex: "tolerância de rendimento residual: R$5/mês").
+
+**Sobre `fin_ajustar_saldo_conta`:** você não precisa calcular nada manualmente. Passa o saldo desejado em `amount_cents`, a tool faz a conta `initial_balance + Σ(tx)` e devolve `balance_cents_calculado` no retorno. Se não bateu com o desejado, é sinal de problema de dados — investiga em vez de insistir.
 
 **Atualizar `Status Conciliação.md`:** registra que o saldo foi reconciliado em DD/MM/AAAA e em qual valor, pra sessões futuras saberem o ponto de partida.
 
-## Classificação automática de linhas (v2.3.4)
+## Classificação automática de linhas
 
-**A partir de v2.3.4**, em vez de fazer heurística client-side pra saque/pagamento de fatura/transferência cross-conta, use `fin_classificar_linha_extrato`. A tool recebe `{description, amount_cents, account_id, trntype?, fitid?}` e retorna `{type, confidence, reason, details}` onde type ∈ `expense|income|transfer|payment_invoice|atm_withdrawal`.
+Em vez de fazer heurística client-side pra saque/pagamento de fatura/transferência cross-conta, use `fin_classificar_linha_extrato`. A tool recebe `{description, amount_cents, account_id, trntype?, fitid?}` e retorna `{type, confidence, reason, details}` onde type ∈ `expense|income|transfer|payment_invoice|atm_withdrawal`.
 
-**Fluxo recomendado:** passa cada linha pelo classifier antes de decidir qual tool de lançamento usar. A resposta te diz o tipo e (quando possível) sugere a conta contraparte (conta Dinheiro pra ATM, cartão pra PAG FATURA, outra conta pra XFER).
+**Fluxo recomendado:** passa cada linha pelo classifier antes de decidir qual tool de lançamento usar. A resposta te diz o tipo e (quando possível) sugere a conta contraparte (conta de dinheiro vivo pra ATM, cartão pra PAG FATURA, outra conta pra XFER).
 
 ```
 // Exemplo
 classify({
   description: "SAQUE 24H BANCO X",
   amount_cents: -20000,
-  account_id: "uuid-c6",
+  account_id: "uuid-conta",
   trntype: "ATM"
 })
 → { type: "atm_withdrawal", confidence: "high",
-    details: { suggested_cash_account_id: "uuid-dinheiro" } }
-// → cria transferência C6 → Dinheiro via fin_criar_transferencia
+    details: { suggested_cash_account_id: "uuid-dinheiro-vivo" } }
+// → cria transferência [conta] → [conta dinheiro vivo] via fin_criar_transferencia
 ```
 
 O classifier tem blocklist de palavras genéricas (PIX, TED, DOC, etc) pra não dar falso positivo. Se a resposta vier com `confidence: "low"`, pergunta pra pessoa antes de lançar.
@@ -364,13 +368,13 @@ Se o extrato mostra "TED" / "PIX" / "TRANSFERÊNCIA" pra outra conta da pessoa, 
 
 ### Extrato com débito automático de cartão de crédito
 
-Linha tipo "PAGAMENTO FATURA C6". Isso NÃO é despesa de R$X. É um **pagamento de fatura**. Use `fin_pagar_fatura` em vez de `fin_criar_despesa`. Identifica o cartão no `Contas e Cartões.md` pelo nome.
+Linha tipo "PAGAMENTO FATURA [cartão]". Isso NÃO é despesa de R$X. É um **pagamento de fatura**. Use `fin_pagar_fatura` em vez de `fin_criar_despesa`. Identifica o cartão no `Contas e Cartões.md` pelo nome.
 
 ### Extrato com saque ATM
 
-Linha tipo "SAQUE 24H BANCO X". É uma **transferência** da conta pra "Dinheiro" (mesma regra de saque manual). Lança via `fin_criar_transferencia`.
+Linha tipo "SAQUE 24H BANCO X". É uma **transferência** da conta pra conta de dinheiro vivo (mesma regra de saque manual). Lança via `fin_criar_transferencia`.
 
-Se a pessoa não tem conta "Dinheiro" no FIN, oferece criar uma vez (igual em `/financeiro:lancar`).
+Se a pessoa não tem conta de dinheiro vivo no FIN, oferece criar uma vez (igual em `/financeiro:lancar`).
 
 ### Extrato muito grande (200+ linhas)
 
@@ -395,7 +399,7 @@ Se o parser falhar (formato corrompido, encoding estranho, layout não reconheci
 
 1. **Lançar duplicata** → sempre checa idempotência ANTES de lançar
 2. **Lançar pagamento de fatura como despesa** → é `fin_pagar_fatura`, não despesa
-3. **Lançar saque como despesa** → é `fin_criar_transferencia` banco → Dinheiro
+3. **Lançar saque como despesa** → é `fin_criar_transferencia` banco → conta de dinheiro vivo
 4. **Lançar transferência entre contas próprias 2x** → quando processar 2 extratos do mesmo período
 5. **Confiar cegamente em parse de PDF** → sempre revisar, sempre avisar a pessoa
 6. **Aprender estabelecimento sem confirmação** → precisa a pessoa categorizar antes de virar regra

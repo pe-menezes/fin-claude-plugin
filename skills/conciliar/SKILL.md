@@ -39,7 +39,7 @@ A pessoa tem um extrato ou fatura e quer comparar com o que tá no FIN. Esse é 
 
 ### Modo 2 — Conciliação só no FIN (sem arquivo externo)
 
-A pessoa quer só revisar o que tá no FIN num período, sem ter um extrato pra comparar. Útil pra "tá tudo certo no Nubank esse mês?". Mostra todas as transações do período pra revisão visual.
+A pessoa quer só revisar o que tá no FIN num período, sem ter um extrato pra comparar. Útil pra "tá tudo certo na [conta] esse mês?". Mostra todas as transações do período pra revisão visual.
 
 ### Modo 3 — Conferência de saldo
 
@@ -99,7 +99,7 @@ Cruza as duas listas. Cada transação cai em **uma de 5 categorias**:
 Tabela única organizada por categoria:
 
 ```
-=== CONCILIAÇÃO: Conta C6 — Período 13/02 a 14/03/2026 ===
+=== CONCILIAÇÃO: [conta] — Período YYYY-MM-DD a YYYY-MM-DD ===
 
 ✓ BATEM CERTINHO (47)
 | Data       | Valor    | Descrição (FIN)        | Status |
@@ -186,27 +186,27 @@ Quando a pessoa terminar de resolver tudo (ou pelo menos confirmar o que fica co
 ## Conciliações
 | Conta/Cartão | Período | Status | Data conciliação | FITIDs/hashes lançados |
 |--------------|---------|--------|------------------|------------------------|
-| C6 | 2026-02-13 a 2026-03-14 | Conciliado | 2026-04-12 | (FITIDs ou hashes) |
+| [conta] | YYYY-MM-DD a YYYY-MM-DD | Conciliado | YYYY-MM-DD | (FITIDs ou hashes) |
 ```
 
 Se sobraram pendências não resolvidas:
 ```markdown
 ## Pendências
-- C6 13/02-14/03/2026: 1 transação só no FIN (R$45 dia 25/02) marcada pra investigar
-- C6 13/02-14/03/2026: 2 transações só no extrato (R$120 e R$30) marcadas pra investigar
+- [conta] [período]: N transações só no FIN marcadas pra investigar
+- [conta] [período]: M transações só no extrato marcadas pra investigar
 ```
 
 ### Passo 9 — Resumo final
 
 ```
 ✓ Conciliação concluída.
-- Conta: C6
-- Período: 13/02 a 14/03/2026
-- 47 transações conferidas (batem)
-- 3 leves diferenças resolvidas
-- 5 só no FIN: 4 mantidas, 1 deletada
-- 8 só no extrato: 7 lançadas, 1 ignorada
-- 1 duplicata: removida
+- Conta: [nome real]
+- Período: YYYY-MM-DD a YYYY-MM-DD
+- N transações conferidas (batem)
+- M leves diferenças resolvidas
+- K só no FIN: X mantidas, Y deletadas
+- L só no extrato: X lançadas, Y ignoradas
+- D duplicatas: removidas
 - Status: Conciliado
 - Pendências: nenhuma (ou: lista)
 ```
@@ -273,12 +273,12 @@ Comparar saldo do FIN com "saldo do dia" do extrato dá falso positivo de diverg
 
 ### Passo 3 — Comparar
 
-- Bate (tolerância R$5, ver abaixo): ✓ "Tá batendo. R$X."
+- Bate (dentro da tolerância de ruído, ver abaixo): ✓ "Tá batendo. R$X."
 - Não bate: "Diferença de R$Y. Quer rodar conciliação completa pra achar a divergência?"
 
 Se sim, vai pro Modo 1 ou 2 conforme a pessoa tenha extrato ou não.
 
-**Tolerância de rendimento de aplicação automática:** bancos com aplicação automática (Itaú "Aplic Aut Mais", Santander, etc.) agregam rendimentos de forma que diverge ~R$0,50–R$5 por mês do lançamento feito no FIN. Divergência pequena concentrada em "Rendimento Conta Corrente" é ruído esperado, não trava conciliação — nomeia como "divergência de rendimento residual" e segue.
+**Tolerância de rendimento de aplicação automática:** vários bancos brasileiros têm aplicação automática diária. O rendimento agregado nem sempre bate 1:1 com o lançamento feito no FIN, especialmente quando o lançamento individual é fração de centavo arredondada. Divergência pequena (alguns reais ou ~0,5% do saldo, o que for menor) concentrada em "Rendimento" é ruído esperado e não trava conciliação — nomeia como "divergência de rendimento residual" e segue. Se a pessoa quer um valor de tolerância fixo, pergunta uma vez e grava em `Preferências.md`.
 
 **Atenção USD:** se a diferença aparece só no `fin_patrimonio` (e não em contas BRL individuais), pode ser variação de cotação entre a leitura anterior e a atual — cotação muda, patrimônio consolidado muda, nenhuma transação faltou. Confirma isso antes de partir pra investigação.
 

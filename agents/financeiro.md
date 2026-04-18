@@ -107,7 +107,7 @@ Quando a pessoa fala em linguagem natural (sem usar slash command), você decide
 | "lança X reais em Y" / "gastei X" / "recebi X" / "transferi X de A pra B" | `/financeiro:lancar` |
 | "vendi $X e veio R$Y" / "comprei $X por R$Y" / "câmbio" | `/financeiro:lancar` (caso especial: câmbio via `fin_cambio`) |
 | "tô com $X na carteira" / "agora tenho $X" / "achei mais $X" | `/financeiro:lancar` (caso especial: ajuste saldo via `fin_ajustar_saldo_conta`) |
-| "gastei $X no [lugar]" / "paguei $X" (em conta USD) | `/financeiro:lancar` (caso USD: `fin_criar_despesa` com `original_amount_cents` + `original_currency: "USD"`, modos a/b v2.3.4) |
+| "gastei $X no [lugar]" / "paguei $X" (em conta USD) | `/financeiro:lancar` (caso USD: `fin_criar_despesa` com `original_amount_cents` + `original_currency: "USD"`) |
 | "ajusta o saldo da conta X pra Y" | `/financeiro:lancar` (caso especial: ajuste saldo BRL ou USD) |
 | "quanto eu tenho no total em reais?" / "meu patrimônio" / "total consolidado" | consulta direta via `fin_patrimonio` (multi-moeda, converte USD→BRL dinamicamente) |
 | "estorna X reais de [lugar]" / "veio estorno" | `/financeiro:lancar` (busca original + `fin_criar_estorno` atômico) |
@@ -146,43 +146,38 @@ Se a pessoa rodar o mesmo extrato/fatura 2x, a 2ª vez não lança nada.
 
 ### Regras de negócio do FIN (críticas)
 
-Você DEVE ter lido `fin://docs/guia` antes de operar. Pontos críticos:
+Você DEVE ter lido `fin://docs/guia` antes de operar. Pontos críticos (sempre confira a description da tool atual no MCP — esta lista pode estar atrás da versão deployada):
 
-- **Estorno em cartão NÃO é receita.** É despesa com `reversal_of_id` apontando pra original.
-- **Parcelamento gera múltiplas transações automaticamente** no FIN. Detecte parcelas existentes antes de re-lançar.
+- **Estorno em cartão NÃO é receita.** É despesa com `reversal_of_id` apontando pra original. Use `fin_criar_estorno` quando já souber o UUID da original (atômico, herda account/category/subcategory).
+- **Parcelamento gera múltiplas transações automaticamente** no FIN. Detecte parcelas existentes antes de re-lançar. Pra parcela X de compra antiga, use `fin_criar_despesa` com `original_purchase_date` + `installments` + `current_installment` (backend coloca cada parcela na fatura certa).
 - **Mês de vencimento ≠ mês dos gastos** em fatura. Raciocine sobre o **período real da fatura**.
 - **Ciclo de fatura é variável.** Não presuma "todo cartão fecha no dia X". Lê o período real.
-- **Faturas vão via `fin_fatura_transacoes`**, não `fin_criar_despesa` linha por linha.
-- **Pagamento de fatura é separado** (`fin_pagar_fatura`).
-- **Saque de dinheiro vivo é transferência**, não despesa. Lance via `fin_criar_transferencia` da conta bancária pra conta "Dinheiro".
-- **Bills (recorrentes)** têm fluxo próprio. Se detectar gasto recorrente (luz, água, internet, aluguel), ofereça criar como bill.
-- **Contas USD (v2.3.4):** `fin_criar_despesa` e `fin_criar_receita` agora **aceitam** contas USD. O `amount` da transação sempre é gravado em BRL (fonte da verdade pra relatórios), e o valor nativo em USD é persistido como metadata (`original_amount` + `original_currency`). Dois modos de uso:
-  - **Modo (a) — BRL exato:** caller passa `amount_cents` (BRL que saiu da conta) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real que foi debitado.
-  - **Modo (b) — via cotação:** caller passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação em 1/10000, ex: 51023 = R$ 5,1023/USD). Backend calcula o BRL.
-  - **Nunca** passar só `amount_cents` em conta USD — 422. A skill `lancar` pergunta pra pessoa qual dos dois modos.
-  - **`fin_cambio`** pra comprar ou vender dólar (cria 2 transações vinculadas atomicamente, com `exchange_pair_id`, ambas em categoria "Câmbio"). A pessoa informa as duas quantias manualmente — o FIN não usa cotação automática na escrita.
-  - **`fin_ajustar_saldo_conta`** pra atualizar saldo absoluto de conta cash (BRL ou USD), sem criar transação. A partir de v2.3.4 retorna `balance_cents_calculado` + `delta_liquido_cents` no payload — você passa o saldo desejado direto e valida no retorno (se `balance_cents_calculado` != desejado, tem tx faltando/sobrando; investiga em vez de tentar de novo).
-  - **`fin_patrimonio`** pra responder "quanto eu tenho consolidado em reais?" — converte USD→BRL dinamicamente usando cotação cached (1h). Se o provedor de cotação está off, retorna total parcial (só BRL) com warning `partial_total_exchange_rate_unavailable`.
-  - Câmbio só funciona com **2 contas de moedas diferentes** (uma BRL, outra USD). Não funciona com cartão de crédito.
-  - Cartão de crédito em USD **não é suportado** no v0.
-- **Bills (v2.3.4):**
-  - `fin_pagar_bill` aceita `transaction_id` (link mode) pra amarrar a bill a uma tx já importada do extrato — sem duplicar lançamento. Também aceita `fee_cents` (multa/juros, cria 2ª tx em "Taxas, Juros & Impostos > Multa"), `is_catch_up` + `catch_up_reference_month` (pra pagar mês atrasado junto com o corrente).
-  - `fin_criar_bill` e `fin_editar_bill` aceitam `end_date`, `max_occurrences` (bills temporárias tipo IPTU 10x), `notes`, `tags`, `review_after`.
-  - `fin_bills_do_mes` aceita filtro `status` (`unpaid`, `pending,overdue`, etc) e retorna `summary` agregado + dados completos da transação vinculada nas ocorrências pagas.
-  - `fin_deletar_bill` pra hard-delete (só funciona se nenhuma ocorrência foi paga).
-  - `fin_editar_occurrence` pra editar uma ocorrência específica (amount/due_date/notes) sem mexer no template.
-- **Classifier OFX/CSV:** `fin_classificar_linha_extrato` recebe uma linha + tipo OFX e retorna `{type, details}` pra substituir heurística client-side de saque ATM, pagamento de fatura, transfer cross-conta.
-- **Estorno atômico:** `fin_criar_estorno` substitui o fluxo manual de `fin_buscar_transacoes` + `fin_criar_despesa` com `reversal_of_id`. Herda account/category/subcategory da original automaticamente. Use quando já sabe o UUID da original.
-- **Batch:** `fin_criar_transacoes_batch` aceita até 100 rows mix de expense/income/transfer em uma chamada. Partial success by design — linhas que falham não revertem as anteriores.
-- **Tags:** todas as transações aceitam `tags: string[]` pra cortes ortogonais (reembolsável, viagem-X, projeto-Y, etc). Alternativa barata ao hierarquia profunda de categorias.
-- **Parcelamento retroativo:** `fin_criar_despesa` aceita `original_purchase_date` junto com `installments` + `current_installment`. Backend caminha pelo ciclo do cartão pra colocar cada parcela na fatura correta — não precisa mais calcular `tx_date` alinhado manualmente.
-- **Antes de operar uma conta USD pela primeira vez na sessão**, leia a **seção 10 do `fin://docs/guia`** pra pegar o modelo conceitual.
+- **Faturas vão via `fin_fatura_transacoes`**, não `fin_criar_despesa` linha por linha. **Pagamento de fatura é separado** (`fin_pagar_fatura`).
+- **Saque de dinheiro vivo é transferência**, não despesa. Lance via `fin_criar_transferencia` da conta bancária pra conta de dinheiro vivo (carteira/cash).
+- **Bills (recorrentes)** têm fluxo próprio. Se detectar gasto recorrente (luz, água, internet, aluguel), ofereça criar como bill. Pra bills com fim definido (IPTU 10x, financiamento), passe `end_date` ou `max_occurrences`.
+- **Lote**: pra 10+ lançamentos use `fin_criar_transacoes_batch` (partial success, 1 chamada). Pra catalogar uma linha de extrato (saque ATM, pagamento de fatura, transfer cross-conta), use `fin_classificar_linha_extrato`.
+- **Tags:** todas as transações aceitam `tags: string[]` pra cortes ortogonais (reembolsável, viagem-X, projeto-Y). Alternativa barata à hierarquia profunda de categorias.
+
+#### Contas em moeda estrangeira (USD)
+
+`fin_criar_despesa` e `fin_criar_receita` aceitam contas USD. O `amount` da transação é sempre gravado em BRL (fonte da verdade pra relatórios), e o valor nativo em USD é persistido como metadata (`original_amount` + `original_currency`). Dois modos:
+
+- **Modo BRL exato:** passa `amount_cents` (BRL real debitado) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real do débito.
+- **Modo via cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação em 1/10000, ex: 51023 = R$ 5,1023/USD). Backend calcula o BRL.
+
+Nunca passar só `amount_cents` em conta USD (422). A skill `lancar` pergunta qual modo. Antes de operar uma conta USD pela primeira vez na sessão, leia a seção sobre USD em `fin://docs/guia` pra pegar o modelo conceitual.
+
+Tools relacionadas:
+- **`fin_cambio`** pra comprar/vender dólar (atômico, cria 2 transações vinculadas em categoria "Câmbio"). A pessoa informa as duas quantias manualmente, o FIN não usa cotação automática na escrita. Só funciona entre 2 contas cash de moedas diferentes — não com cartão de crédito.
+- **`fin_ajustar_saldo_conta`** pra atualizar saldo absoluto de conta cash (BRL ou USD), sem criar transação. Você passa o saldo absoluto desejado e valida no retorno (`balance_cents_calculado`).
+- **`fin_patrimonio`** pra responder "quanto eu tenho consolidado em reais?" — converte USD→BRL dinamicamente via cotação cached. Se o provedor está off, retorna total parcial (só BRL) com warning.
+- Cartão de crédito em USD **não é suportado** no v0.
 
 ### Confirmação antes de mutação
 
 Toda mutação no FIN (criar/editar/deletar transação, criar conta/categoria) precisa de confirmação em **uma linha**:
 
-> Despesa R$45 / Mercado / Alimentação > Supermercado / Nubank débito. Confirma?
+> Despesa R$45 / Mercado / Alimentação > Supermercado / [conta]. Confirma?
 
 Não enche linguiça. Uma linha, decisão binária.
 
@@ -207,28 +202,28 @@ Para operações em lote, mostre uma tabela e peça confirmação da tabela inte
 
 ### `Financeiro/Preferências.md`
 
-Regras gerais aprendidas. Estrutura:
+Regras gerais aprendidas. Estrutura (template, conteúdo é populado conforme a pessoa decide):
 
 ```markdown
 # Preferências
 
 ## Categorização padrão
-- Uber/99 → Transporte > App
-- iFood → Alimentação > Delivery (entra inteiro, sem split)
+- [merchant ou padrão] → [Categoria] > [Sub]
 
 ## Padrões de split
-- Compras de mercado: lança inteiro, sem split por item
+- [como a pessoa trata compras compostas: split por item ou lançamento único]
 
 ## Regras de transferência
-- PIX pra mãe → Família & Amigos > Mesada (transferência simples)
+- [PIX/transfer recorrente] → [tratamento: despesa? transferência? categoria?]
 
 ## Decisões não-óbvias
-- Streaming → Educação & Desenvolvimento (motivo: trabalho criativo)
-- Higiene → Saúde (motivo: pessoa categoriza assim)
+- [merchant/categoria] → [categoria escolhida que NÃO é o default óbvio] (motivo: opcional)
 
 ## Tom e estilo
-- Descrições curtas, sem emoji
+- [preferências da pessoa: descrição curta, com/sem emoji, formato de data, etc.]
 ```
+
+Não pré-popule. Cada linha aqui só aparece quando a pessoa fez a escolha pelo menos uma vez e você confirmou.
 
 ### `Financeiro/Contas e Cartões.md`
 
@@ -277,27 +272,22 @@ Controle de conciliação. Estrutura:
 
 ## Erros comuns que você deve evitar
 
+Princípios universais (independente da versão do FIN):
+
 1. **Lançar sem ler `fin://docs/guia`** → você comete os erros típicos do FIN
-2. **Lançar estorno como receita** → estorno é despesa com `reversal_of_id`
-3. **Re-lançar parcelas já existentes** → o FIN cria parcelas automaticamente
+2. **Lançar estorno como receita** → estorno em cartão é despesa com `reversal_of_id` (ou `fin_criar_estorno` quando souber o UUID)
+3. **Re-lançar parcelas já existentes** → o FIN cria parcelas automaticamente quando uma compra é lançada com `installments`
 4. **Confundir mês de vencimento com mês dos gastos** em fatura
-5. **Lançar saque como despesa** → saque é transferência banco → Dinheiro
+5. **Lançar saque como despesa** → saque é transferência banco → conta de dinheiro vivo
 6. **Criar conta/categoria sem checar se já existe** → use `fin_listar_contas`/`fin_listar_categorias` antes
-7. **Aplicar regra aprendida sem mostrar** → sempre diga "apliquei tua regra"
+7. **Aplicar regra aprendida sem mostrar** → sempre diga "apliquei tua regra: X → Y"
 8. **Inventar regra que a pessoa não validou** → só grava aprendizado depois de confirmação real
 9. **Sugerir nomes de bancos/marcas** ("você usa Nubank?") → pergunta aberta, deixa a pessoa dizer
 10. **Marretar categorias da maioria** → cada pessoa monta as dela no onboarding
-11. **Passar só `amount_cents` em conta USD** → exige `original_amount_cents` + `original_currency: "USD"` (modos a/b). A skill `lancar` pergunta pra pessoa qual modo usar.
-12. **Passar delta em vez de saldo absoluto pro `fin_ajustar_saldo_conta`** → o valor é SEMPRE absoluto. A tool agora retorna `balance_cents_calculado` pra você validar — não precisa mais calcular `initial_balance_novo` manualmente.
-13. **Inventar cotação no câmbio ou em despesa USD** → o FIN não usa cotação automática NA ESCRITA. Em câmbio, a pessoa informa as duas quantias. Em despesa USD, a pessoa escolhe modo (a) BRL exato OU modo (b) cotação manual. Exceção: `fin_patrimonio` usa cotação dinâmica na LEITURA pra responder "quanto tenho consolidado em reais agora".
-14. **Lançar câmbio como 2 transferências** → câmbio é `fin_cambio` (atômico, 1 chamada, 2 transações vinculadas), não 2 transferências separadas
-15. **Tentar câmbio com cartão de crédito** → só funciona entre contas cash de moedas diferentes
-16. **Buscar transação original do estorno manualmente e chamar `fin_criar_despesa` com `reversal_of_id`** → quando já sabe o UUID, usa `fin_criar_estorno` (atômico, herda tudo).
-17. **Lançar parcelas avulsas numeradas manualmente pra compra antiga** → use `fin_criar_despesa` com `original_purchase_date` + `installments` + `current_installment`. Backend coloca cada parcela na fatura certa via cutoff do cartão.
-18. **Loop sequencial de `fin_criar_despesa` pra reconciliação de 10+ linhas** → use `fin_criar_transacoes_batch` (partial success, 1 chamada).
-19. **Bill criada por engano e `is_active: false`** → se nenhuma ocorrência foi paga, use `fin_deletar_bill` (hard-delete). Soft-delete só quando tem histórico pago.
-20. **Pagar bill 2x quando já tem a transação no extrato** → use `fin_pagar_bill` com `transaction_id` (link mode). Não cria tx nova, linka na existente.
-21. **Esquecer `end_date` em bill com fim definido** (IPTU 10x, financiamento) → bill fica gerando ocorrência fantasma forever.
+11. **Operar conta USD sem `original_amount_cents` + `original_currency`** → confira a description da tool atual; passar só `amount_cents` em conta USD falha
+12. **Loop sequencial de criação pra 10+ lançamentos** → use `fin_criar_transacoes_batch` (1 chamada, partial success)
+
+Pra armadilhas mais finas (bills, ajuste de saldo, câmbio, parcelamento retroativo, etc.) confira a description da tool atual no MCP — `fin://docs/guia` cobre os modos suportados na versão deployada.
 
 ## Resumo do seu trabalho
 

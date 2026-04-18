@@ -107,17 +107,17 @@ Default: uma conta única.
 
 **Pergunta sobre conta em dólar:**
 
-> Tu tem alguma conta em **dólar**? Wise, conta nos EUA, carteira de USD, qualquer coisa que guarda valor em USD em vez de reais?
+> Tu tem alguma conta em **dólar**? Carteira USD, conta em fintech internacional, conta nos EUA, broker em dólar, qualquer coisa que guarda valor em USD em vez de reais?
 
 Se sim, pra cada conta USD capture:
-- **Nome** (Wise USD, Conta EUA, Carteira USD, etc.)
+- **Nome** (use o nome que a pessoa der pra essa conta)
 - **Tipo:** cash (todas as contas USD são cash no v0 do FIN, não tem cartão de crédito USD)
 - **Moeda:** USD
 - **Saldo atual em USD** (opcional, pode ajustar depois via `fin_ajustar_saldo_conta`)
 
-**Como funciona despesa em conta USD (v2.3.4):**
+**Como funciona despesa em conta USD:**
 
-> Desde v2.3.4 dá pra lançar despesa categorizada em USD. O FIN grava `amount` sempre em BRL (pra relatórios ficarem honestos), e guarda o valor nativo em USD como metadata. Na hora de lançar, eu vou te perguntar: *"gastou $X na [Conta USD] — sabe quanto saiu em reais da tua conta, ou prefere estimar com uma cotação?"* (modo exato ou modo cotação).
+> Dá pra lançar despesa categorizada em USD. O FIN grava `amount` sempre em BRL (pra relatórios ficarem honestos), e guarda o valor nativo em USD como metadata. Na hora de lançar, eu vou te perguntar: *"gastou $X na [conta USD] — sabe quanto saiu em reais da tua conta, ou prefere estimar com uma cotação?"* (modo exato ou modo cotação).
 >
 > O que dá pra fazer com conta USD:
 >
@@ -215,7 +215,7 @@ Esse é o bloco mais conversacional. Pergunta uma coisa de cada vez, mas rápido
 3. **"Mora de aluguel ou imóvel próprio?"** → cria **Casa** com sub **Aluguel** OU **Financiamento** (uma das duas, não as duas). Sempre adiciona subs comuns: Contas fixas (luz, água, internet, condomínio), Limpeza, Manutenção, Móveis e Utensílios, Outros
 4. **"Faz atividade física?"** → adiciona **Saúde > Atividade física**
 5. **"Faz terapia?"** → adiciona **Saúde > Terapia** (separada de Consultas)
-6. **"Tem profissão ou hobby que muda como tu enxerga consumo cultural?"** → pergunta importante. Streaming, cinema, teatro, livros, podcasts, museus podem ir pra **Lazer** OU pra **Educação & Desenvolvimento** dependendo da resposta. Profissões criativas, artísticas, de pesquisa ou ensino tendem a tratar consumo cultural como trabalho/estudo, e nesse caso vai pra Educação. **Default = Lazer.**
+6. **"Streaming, cinema, livros, podcasts: pra ti isso é lazer ou educação/trabalho?"** → consumo cultural pode ir pra **Lazer** OU pra **Educação & Desenvolvimento** dependendo da resposta. **Default = Lazer.** Pergunta opcional, só faz se a pessoa parecer ter algum vínculo profissional/de estudo com esse tipo de conteúdo.
 7. **"Tem rotina de estética ou cuidados regulares? Cabelo, manicure, drenagem, depilação?"** → cria subs específicas em **Pessoal** (achatadas se necessário, ver regra de achatamento abaixo)
 8. **"Fuma, vapeia, ou tem algum vício controlado que tu quer rastrear?"** → cria **Pessoal > Tabaco/Vícios**
 9. **"Tem algum gasto recorrente importante que não se encaixa no padrão?"** → captura o inesperado, cria categoria/sub conforme
@@ -241,33 +241,30 @@ Explique o limite pra pessoa antes de criar:
 
 ### Bloco 5 — Proposta de categorias completa
 
-Com tudo dos blocos 3 e 4, você tem a base. Agora você consolida e mostra a **proposta completa** pra revisão.
+Com tudo dos blocos 3 e 4, você tem a base pra **montar a lista de categorias da pessoa**. Agora consolida e mostra a proposta pra revisão.
 
-Formato da proposta:
+**Princípio:** a proposta é **derivada das respostas dela**, não de um template fixo. Se ela disse que tem cachorro, vai ter Pets. Se não disse, não inventa. Se trabalha com IA e paga várias assinaturas, faz sentido ter sub "IA" em Tecnologia. Se nunca mencionou IA, não cria. **Você nunca puxa categoria que ela não justificou.**
+
+Formato da proposta (template estrutural, conteúdo é montado a partir das respostas):
 
 ```markdown
 ## Proposta de categorias
 
 ### Despesas
-- **Alimentação**: Mercado, Restaurante, Delivery, Lanche, Outros
-- **Casa**: Aluguel, Contas fixas (luz, água, internet, condomínio), Limpeza, Manutenção, Móveis e Utensílios, Outros
-- **Transporte**: Combustível, Estacionamento, Manutenção, Seguro, IPVA, Lavagem, App, Transporte Público
-- **Saúde**: Atividade física, Terapia, Consultas, Exames, Procedimentos, Medicamentos, Higiene
-- **Lazer & Social**: Bar/Rua, Eventos, Viagem
-- **Educação & Desenvolvimento**: Cursos, Livros, Streaming, Cinema, Teatro
-- **Pessoal**: Estética Cabelo, Estética Manicure, Roupas/Acessórios, Tabaco/Vícios
-- **Família & Amigos**: Presentes, Mesada
-- **Tecnologia & Assinaturas**: Assinaturas (Software/Cloud), IA, Eletrônicos
-- **Pets**: Ração, Veterinário, Banho/Tosa
-- **Taxas, Juros & Impostos**: Anuidade/Taxas cartão, IOF, Juros, Multa
+- **[Categoria 1]**: [Sub], [Sub], [Sub]
+- **[Categoria 2]**: [Sub], [Sub]
+...
 
 ### Receitas
-- **Salário**: Fixo, VA/VR, Bônus, PLR, 13º
-- **Pontuais**: Venda de item pessoal, Outros
-- **Reembolso**: Amigos, Família
+- **[Categoria 1]**: [Sub], [Sub]
+...
 ```
 
-(Adapte às respostas reais — esse é só formato.)
+**Como derivar:**
+- Cada categoria sai de um bloco do questionário (alimentação, moradia, transporte, lazer, saúde, etc.) — só inclua a categoria se a pessoa disse que **gasta com isso**.
+- Cada subcategoria sai de algo concreto que a pessoa mencionou (ex: se ela disse "uso uber e ônibus", as subs de Transporte são "App" e "Transporte Público", não as 8 subs possíveis).
+- Categorias muito comuns (Alimentação, Casa, Transporte, Lazer & Social, Saúde, Pessoal) quase sempre vão estar lá. Mas as **subs** variam muito por pessoa.
+- Receitas: pelo menos uma de "salário/renda principal" e uma de "outros/pontuais". O resto é caso a caso.
 
 Mostre e pergunte:
 
@@ -275,7 +272,7 @@ Mostre e pergunte:
 
 A pessoa pode rodar **quantas rodadas de ajuste precisar** até confirmar. Cada rodada, você atualiza a lista e mostra de novo.
 
-**Captura de "decisões não-óbvias":** durante o ajuste, se a pessoa fizer uma escolha que não é o default (ex: "Streaming → Educação em vez de Lazer", "Higiene → Saúde em vez de Pessoal", "Plano de celular → Casa em vez de Tecnologia"), **anote essa decisão**. Vai pra `Preferências.md > Decisões não-óbvias` no final.
+**Captura de "decisões não-óbvias":** durante o ajuste, se a pessoa colocar algo numa categoria diferente do que seria o default óbvio pra ela (ex: uma assinatura num lugar inesperado, uma despesa de higiene em saúde em vez de pessoal, etc.), **anote essa decisão com o motivo**. Vai pra `Preferências.md > Decisões não-óbvias` no final. Não imponha defaults — só anote os desvios que ela tomou conscientemente.
 
 ### Bloco 6 — Geração e execução
 
@@ -329,9 +326,9 @@ Ordem de criação:
 5. **Categorias de receita** — `fin_criar_categoria`
 6. **Subcategorias de receita** — `fin_criar_subcategoria`
 
-**Mostre o progresso em tempo real:**
-> Criando contas... [3/4 ✓] Caixa, Sicredi, Nubank
-> Criando cartões... [2/6 ✓] C6, Nubank
+**Mostre o progresso em tempo real** (use os nomes reais das contas/cartões/categorias da pessoa):
+> Criando contas... [3/4 ✓] [conta], [conta], [conta]
+> Criando cartões... [2/6 ✓] [cartão], [cartão]
 > Criando categorias... [5/12 ✓] ...
 
 #### Passo 3: Popular os arquivos `.md` da pasta `Financeiro/`
@@ -423,10 +420,10 @@ Cheque se tem dados suficientes pra criar tudo. Se faltar algo crítico:
 
 ```
 Vou criar no FIN:
-- 4 contas: Caixa, Sicredi, Nubank, C6
-- 6 cartões: C6, Nubank, Sicredi, Caixa, C&A (loja), Renner (loja)
-- 11 categorias de despesa com 47 subs
-- 6 categorias de receita com 19 subs
+- N contas: [lista nominal das contas]
+- M cartões: [lista nominal dos cartões]
+- X categorias de despesa com Y subs
+- Z categorias de receita com W subs
 
 Confirma?
 ```
@@ -464,9 +461,9 @@ Mostra um resumo curto:
 
 > Encontrei: [N] contas bancárias BRL, [U] contas em USD (se houver), [M] cartões de crédito, [K] categorias com [W] subcategorias no total. Vou popular tua memória local com isso.
 
-Se detectou contas USD, avisa o modelo de operação (v2.3.4):
+Se detectou contas USD, avisa o modelo de operação:
 
-> Detectei [U] conta(s) em dólar. A partir da v2.3.4 dá pra lançar despesa/receita categorizada em USD — o FIN grava em BRL como fonte da verdade e mantém o valor nativo em USD como metadata. Na hora de lançar eu pergunto se tu sabe o valor exato em BRL que saiu ou prefere informar a cotação. Câmbio (`fin_cambio`) e ajuste de saldo (`fin_ajustar_saldo_conta`) continuam disponíveis. Pra ver patrimônio consolidado em reais, uso `fin_patrimonio`.
+> Detectei [U] conta(s) em dólar. Dá pra lançar despesa/receita categorizada em USD — o FIN grava em BRL como fonte da verdade e mantém o valor nativo em USD como metadata. Na hora de lançar eu pergunto se tu sabe o valor exato em BRL que saiu ou prefere informar a cotação. Câmbio (`fin_cambio`) e ajuste de saldo (`fin_ajustar_saldo_conta`) também tão disponíveis. Pra ver patrimônio consolidado em reais, uso `fin_patrimonio`.
 
 **Popule `Financeiro/Contas e Cartões.md`** automaticamente:
 - Tabela de contas: nome, tipo, **moeda (BRL/USD)**, apelidos (vazio inicialmente, vai aprendendo)
@@ -671,4 +668,4 @@ Esse aviso vai como pendência no documento de setup também (seção `## Pendê
 6. **Tentar criar 3 níveis de categoria** → o FIN só tem 2, sempre achata e explica
 7. **Pular o aviso de variação de fechamento** → a pessoa precisa saber que fechamento varia
 8. **Lançar transações no onboarding** → onboarding só cria estrutura (contas, cartões, categorias). Lançamentos vêm depois.
-9. **Data da Fatura Inicial em cartões (v2.3.0+)** → na v2.3.0+, cartões criados via `fin_criar_conta` nascem **sem cutoff** por default — não precisa mais do workaround manual. Se a pessoa quiser importar histórico com saldo preexistente, use `initial_invoice_date` e `initial_invoice_amount_cents` em `fin_criar_conta`, ou `fin_editar_conta` pra corrigir depois. A partir da v2.3.2, passar `initial_invoice_date: null` em `fin_editar_conta` funciona end-to-end (migration do backend aplicada) — use `null` pra remover cutoff de cartões antigos criados em versões < v2.3.0.
+9. **Data da Fatura Inicial em cartões** → cartões criados via `fin_criar_conta` nascem **sem cutoff** por default (qualquer `tx_date` conta). Pra importar histórico com saldo preexistente, use `initial_invoice_date` e `initial_invoice_amount_cents` em `fin_criar_conta`. Pra corrigir cartão antigo criado com cutoff errado, `fin_editar_conta` aceita `initial_invoice_date: null` pra remover. Confira a description da tool atual.
