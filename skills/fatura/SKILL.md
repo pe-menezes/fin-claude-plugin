@@ -83,6 +83,12 @@ Procura no conteúdo da fatura:
 
 O **período real** = (data da primeira transação, data da última transação) ou as datas explícitas do cabeçalho da fatura, o que for mais confiável.
 
+**⚠️ Detectar arquivo histórico vs arquivo-da-fatura.** Vários bancos exportam o CSV/OFX com o histórico inteiro do cartão (várias faturas misturadas), não só a fatura corrente. Se o range de datas do arquivo for maior que ~45 dias, **NÃO assuma que é tudo a mesma fatura**. Mostra pra pessoa o range encontrado e os blocos prováveis (linhas pré-data X, linhas pós-data X) e pergunta:
+
+> Esse arquivo cobre **N faturas** (de DD/MM a DD/MM). Vou processar só a fatura **[período real detectado]**, e ignorar as outras linhas. Confirma?
+
+Linhas fora do período da fatura corrente devem ser **descartadas com motivo explícito** ("já em fatura paga", "fatura futura", "linha de pagamento — ver Casos especiais").
+
 **Compara com o cartão em `Contas e Cartões.md`:**
 
 ```
@@ -92,12 +98,23 @@ Período REAL detectado: 13/02/2026 a 14/03/2026
 → Variação: fechamento real foi dia 14 (esperado dia 12). Diferença +2 dias.
 ```
 
-Se variou, **anota em `Contas e Cartões.md`**:
+Se variou ≤2 dias, **anota em `Contas e Cartões.md`** e segue:
 - Coluna "fechamento observado" → atualiza pro dia mais recente
 - Seção "Histórico de variação" → adiciona linha com data e motivo (se inferível: "fim de semana", "feriado", etc.)
 
 **Avisa a pessoa:**
 > Detectei: fatura do **C6**, período real **13/02/2026 a 14/03/2026** (fechamento observado dia 14, cadastrado é dia 12, diferença de 2 dias). Atualizei tua memória.
+
+**Se variou >2 dias OU se nome do cartão na fatura é diferente do cadastrado:** **PAUSA, não segue.** Pergunta:
+
+> O cartão **[nome no cadastro]** tá com fechamento dia [X], vencimento dia [Y] na minha memória. Mas essa fatura tá com fechamento dia [X+N] / vencimento dia [Y+N] / nome comercial "[nome real]". Isso pode ser:
+> 1. O cartão mudou de plano/regra recentemente → atualizo cadastro com `fin_editar_conta`?
+> 2. Essa fatura é de outro cartão que tu tem → me diz qual?
+> 3. O cadastro tava errado desde o início → corrijo?
+>
+> Sem isso, posso lançar no cartão errado.
+
+Não prossegue sem resposta. Esse cuidado existe porque banco brasileiro às vezes muda dia de vencimento na troca de plano sem o cliente perceber, e a memória do plugin pode ter sido cadastrada errada no `onboarding`.
 
 ### Passo 4 — Identificar a data de vencimento
 
@@ -106,6 +123,8 @@ Procura na fatura:
 - "Pagar até DD/MM/YYYY"
 
 Anota pra usar depois no `fin_pagar_fatura`.
+
+**Se o vencimento detectado diverge >2 dias do `due_day` cadastrado** → ver Passo 3, mesmo fluxo de pausar e perguntar.
 
 ### Passo 5 — Parse das transações da fatura
 
@@ -133,6 +152,11 @@ Pra cada transação que parece estorno (descrição contém "ESTORNO" / "DEVOLU
 **Nunca lança estorno como receita.**
 
 ### Passo 7 — Tratamento de parcelamento
+
+**TL;DR:**
+- **1/N (parcela 1)** → `fin_criar_despesa` com `installments: N`, `amount_cents = valor_parcela * N`. FIN cria as outras N-1 sozinho.
+- **X/N onde 1 já tá no FIN** → pula, FIN já gerou.
+- **X/N onde 1 NÃO tá no FIN (compra antiga)** → `fin_criar_despesa` com `installments: N` + `current_installment: X` + `original_purchase_date: <data real da compra>`. FIN coloca cada parcela na fatura certa.
 
 **REGRA CRÍTICA do FIN:** parcelamento gera múltiplas transações automaticamente no FIN. Você não duplica.
 
@@ -164,22 +188,23 @@ Pra cada transação que parece parcelada:
 
 ### Passo 8 — Idempotência
 
-**Antes de lançar**, busca no FIN as transações já existentes da fatura desse cartão pro período:
+**Antes de lançar**, busca no FIN as transações já existentes da fatura desse cartão pro período via `fin_fatura_transacoes(card_name, reference_month)`.
 
-```
-fin_fatura_cartao(cartao_id: <id>, periodo: <período real detectado>)
-```
+**Algoritmo de matching (CSV/extrato vs FIN), em 3 passadas:**
 
-OU
+1. **Match exato:** `(tx_date, abs(amount_cents), tipo)` — onde tipo = `'refund'` se valor < 0 senão `'charge'`. Pra cada match, marca ambos lados como conciliados.
+2. **Match com tolerância de data ±5 dias:** mesmo valor + tipo, data até 5 dias de diferença. Cobre o gap entre data da compra (CSV) e data de lançamento na fatura (FIN), e o caso do FIN-tx-lançada-no-dia-da-compra vs banco-cobrando-D+1.
+3. **Match de parcela histórica (sem restrição de data):** mesmo valor + tipo. Cobre o caso de parcela X de compra antiga, onde o CSV mostra a data original de meses atrás e o FIN tem a data da fatura corrente.
 
-```
-fin_fatura_transacoes (consulta) — confira a description da tool
-```
+Depois das 3 passadas:
+- **CSV sem match** = pra lançar (novo)
+- **FIN sem match** = sobra (revisar manualmente; geralmente é refund/parcela já tratada, ou erro)
 
-Calcula chave de idempotência pra cada (FITID se OFX, hash caso contrário). Compara e separa em **3 grupos** (mesmo do extrato):
-- Já existe (pula)
-- Vai lançar (novo)
-- Suspeito (revisar)
+Se restar sobra do FIN não-óbvia, **mostra pra pessoa** antes de seguir, não ignora.
+
+Pra OFX use FITID quando disponível (mais confiável que data+valor).
+
+**Sanity check obrigatório no fim do passo 12:** depois de lançar, chama `fin_fatura_cartao` de novo e confere se `total_cents` bate com o valor que a pessoa informou no início (ou que tava no cabeçalho da fatura). Se NÃO bater, mostra a diferença e pergunta antes de declarar sucesso.
 
 ### Passo 9 — Categorização automática
 
@@ -332,7 +357,35 @@ Aparece toda fatura, mesmo valor, mesma descrição. Aprende como regra **muito 
 
 ### Pagamento parcial de fatura anterior aparecendo como crédito
 
-"PAGAMENTO RECEBIDO" / "PGTO ANTERIOR" — isso é o pagamento da fatura passada, NÃO é um estorno nem uma transação. **Pula**, não lança nada. Esse pagamento já foi registrado quando a fatura anterior foi paga via `fin_pagar_fatura`.
+Aliases conhecidos (cada banco usa um label diferente — match case-insensitive na descrição):
+- "PAGAMENTO RECEBIDO" / "PAGAMENTO COM SALDO" / "PGTO ANTERIOR" / "PAG FATURA"
+- "PAYMENT" / "CRED SALDO" / "SALDO A FAVOR"
+- "DEB AUT FATURA" (débito automático da fatura)
+
+Isso é o pagamento da fatura passada, NÃO é um estorno nem uma transação nova. **Pula**, não lança nada. Esse pagamento já foi registrado quando a fatura anterior foi paga via `fin_pagar_fatura`. Marca como descartado com motivo "linha de pagamento".
+
+### Merchants ambíguos por design (Apple/Google Play/PayPal/MercadoPago/etc)
+
+Algumas plataformas funcionam como **guarda-chuva**: a mesma string aparece pra dezenas de assinaturas/cobranças diferentes do mesmo usuário. Exemplos:
+- `APPLE.COM/BILL` / `APPLECOMBILL` → pode ser Splitwise, YouTube Premium, iCloud, HBO Max, App Store, qualquer assinatura via Apple ID.
+- `GOOGLE *<merchant>` / `GOOGLE PLAY` → assinaturas Android, jogos, YouTube.
+- `PAYPAL *<merchant>` → varia por sub-string depois do asterisco.
+- `MP *<merchant>` / `MERCADOPAGO` → cobrança via MercadoPago, varia pelo sub-merchant.
+
+**NÃO categorizar automático nesses merchants**, mesmo com 3+ ocorrências. Sempre perguntar pra pessoa, ou inferir pelo valor (ex: "Apple R$ 99,90 — Splitwise? YouTube Premium? Outra?").
+
+Em `Estabelecimentos.md` esses devem ficar marcados como **"ambíguo permanente"** (não "aguardando 3ª ocorrência"). Se o template de Estabelecimentos.md ainda não tem esse marcador, criar uma seção "Ambíguos permanentes (sempre perguntar)" separada da seção de "candidatos aguardando regra".
+
+### Refund pendente / esperado
+
+Cenário: a pessoa fez uma compra, pediu reembolso pro merchant, mas o crédito ainda não veio. A despesa precisa ser lançada **normalmente** na fatura corrente (porque vai cobrar normal), mas vale marcar pra acompanhamento.
+
+Convenção:
+- Lança a despesa com `tag: "refund-pendente"` (ou `refund-esperado-<valor>` se quiser registrar o valor esperado).
+- No `Status Conciliação.md`, mantém uma seção **"Refunds pendentes"** com (data, descrição, valor, transaction_id, fatura onde foi cobrada).
+- Quando o estorno chegar (próxima fatura ou na mesma), use `fin_criar_estorno(original_transaction_id, amount_cents)` apontando pra essa tx. Remove a entrada do "Refunds pendentes" e atualiza pra "Reembolsado em [data]".
+
+A skill deve **proativamente perguntar** "Tem algum refund pendente esperado?" só se a pessoa mencionar reembolso, devolução, "pedi pra eles devolverem", etc. Não fica perguntando em toda fatura.
 
 ### Compra com pontos (sem valor monetário)
 
@@ -358,10 +411,14 @@ Processa em batches de 50 linhas pra revisão (mesma lógica do extrato).
 4. **Confundir mês de vencimento com mês das compras** → fatura que vence em março contém compras de fevereiro/início de março
 5. **Usar dia de fechamento cadastrado em vez do real** → sempre detecta o real do conteúdo da fatura
 6. **Não atualizar fechamento observado em Contas e Cartões.md** → toda variação vira aprendizado
-7. **Confundir pagamento de fatura anterior com transação nova** → "PAGAMENTO RECEBIDO" pula
+7. **Confundir pagamento de fatura anterior com transação nova** → "PAGAMENTO RECEBIDO" / "PAGAMENTO COM SALDO" / "PAYMENT" pulam
 8. **Lançar saque de cartão como despesa normal** → categoria especial de juros
 9. **Esquecer de oferecer pagar a fatura no fim** → sempre pergunta
 10. **Pular o aviso sobre `fin://docs/guia`** → fatura é onde mais tem regra de negócio do FIN, lê a doc
+11. **Tratar arquivo histórico do banco como se fosse só a fatura corrente** → vários bancos exportam histórico cumulativo; sempre detecta range de datas e isola a fatura alvo
+12. **Categorizar APPLE.COM/BILL, GOOGLE *, PAYPAL *, MP * automaticamente** → merchants guarda-chuva, sempre perguntar
+13. **Ignorar divergência grande (>2 dias) entre vencimento/fechamento detectado e cadastrado** → pausa e pergunta, pode ser cartão errado ou cadastro velho
+14. **Não validar total da fatura no FIN contra o total informado pela pessoa depois de lançar** → sanity check obrigatório, evita erro silencioso passar
 
 ## Tom
 

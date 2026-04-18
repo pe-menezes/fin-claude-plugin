@@ -342,9 +342,45 @@ Depois que tudo foi criado no FIN, popula:
 
 **`Financeiro/Preferências.md`** — começa vazio mas com a seção **Decisões não-óbvias** já preenchida com as decisões capturadas no Bloco 5.
 
-**`Financeiro/Estabelecimentos.md`** — começa vazio (vai populando conforme uso).
+**`Financeiro/Estabelecimentos.md`** — começa vazio (vai populando conforme uso). Estrutura mínima recomendada (4 seções):
 
-**`Financeiro/Status Conciliação.md`** — começa vazio (vai populando conforme conciliações).
+```markdown
+## Regras automáticas (3+ ocorrências consistentes)
+| Merchant | Categoria | Subcategoria | Ocorrências | Obs |
+
+## Candidatos (2 ocorrências, aguardando 3ª)
+| Merchant | Categoria sugerida | Ocorrências | Status |
+
+## Ambíguos permanentes (sempre perguntar)
+> Merchants guarda-chuva (Apple, Google Play, PayPal, MercadoPago) que cobram dezenas de assinaturas/serviços diferentes pela mesma string. Nunca virar regra automática.
+| Merchant | Por que é ambíguo |
+
+## Ambíguos (categorias divergentes no histórico)
+| Merchant | Categorias usadas | Provável resolução |
+```
+
+**`Financeiro/Status Conciliação.md`** — começa vazio (vai populando conforme conciliações). Estrutura recomendada — manter separado o "estado atual por conta" (substitui a cada update) do "log de sessões" (append):
+
+```markdown
+## Estado atual por conta
+### [Conta]
+- Conciliado até: <data>
+- Saldo banco / Saldo FIN
+- Observações relevantes (curto)
+
+## Cartões — última fatura processada por cartão
+### [Cartão]
+- Fatura [ref], vence DD/MM, total R$ X — paga ✅ / aberta
+- Período real / observações
+
+## Refunds pendentes
+| Data lançamento | Descrição | Valor | transaction_id | Fatura |
+
+## Log de sessões
+- [data] resumo curto
+```
+
+Sem isso, o arquivo vira um wall of text cronológico em poucos meses e fica difícil pra skill achar o estado atual.
 
 #### Passo 4: Resumo final
 

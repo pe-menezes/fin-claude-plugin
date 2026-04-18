@@ -7,6 +7,18 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Ajustes na skill `fatura` e estrutura de memória (2026-04-18 noite)
+
+Aprendizados de uma fatura Latam Itaú processada onde o cadastro do cartão (vencimento) estava errado e o CSV exportado pelo banco continha histórico cumulativo (não só a fatura corrente). A skill seguia em frente sem detectar; sem o print do app banco, o lançamento iria pro cartão errado.
+
+- **`fatura` (Passo 3 + 4)** — distingue variação aceitável (≤2 dias, anota e segue) de divergência grande (>2 dias OU nome comercial diferente, **pausa e pergunta**). Cobre o caso de banco mudar plano/vencimento sem o cliente perceber e o caso de cadastro errado no `onboarding`. Sugere `fin_editar_conta` quando aplicável.
+- **`fatura` (Passo 3)** — detecta arquivos com range >45 dias como "histórico cumulativo, não fatura única", isola a fatura alvo e descarta linhas fora com motivo explícito. Cobre exports CSV/OFX que vários bancos brasileiros fazem (Itaú, BB, Santander) trazendo todo o histórico.
+- **`fatura` (Passo 7)** — TL;DR de 3 bullets no topo pra parcelamento (1/N, X/N com 1 já no FIN, X/N sem 1 no FIN). O detalhe completo continua abaixo, mas o caminho feliz fica óbvio.
+- **`fatura` (Passo 8)** — algoritmo de matching CSV vs FIN documentado em 3 passadas: exato → tolerância ±5 dias → match de parcela histórica sem restrição de data. Cobre o gap "FIN tem tx-no-dia-da-compra, banco lança D+1". Adiciona **sanity check obrigatório** no fim do passo 12: chamar `fin_fatura_cartao` e validar total contra valor informado pela pessoa, antes de declarar sucesso.
+- **`fatura` (Casos especiais)** — aliases conhecidos pra "linha de pagamento de fatura anterior" expandidos (PAGAMENTO COM SALDO, PAYMENT, DEB AUT FATURA, CRED SALDO, etc — cada banco usa um). Nova seção "Merchants ambíguos por design" cobrindo APPLE.COM/BILL, GOOGLE *, PAYPAL *, MP * (MercadoPago), com regra: nunca categorizar automático, mesmo com 3+ ocorrências. Nova seção "Refund pendente / esperado" com convenção de tag `refund-pendente` + entrada em `Status Conciliação.md > Refunds pendentes`.
+- **`fatura` (Erros comuns)** — 4 itens novos (11 a 14) cobrindo histórico cumulativo, merchants ambíguos, divergência grande de fechamento/vencimento, e sanity check pós-lançamento.
+- **`onboarding`** — `Estabelecimentos.md` e `Status Conciliação.md` agora têm **estrutura mínima recomendada** documentada. Estabelecimentos ganha seção "Ambíguos permanentes (sempre perguntar)" separada de "candidatos aguardando 3ª ocorrência". Status Conciliação separa "estado atual por conta" (substitui a cada update) de "log de sessões" (append) + seção dedicada "Refunds pendentes" — evita o arquivo virar wall of text cronológico em poucos meses.
+
 ### Ajustes estruturais nas skills (2026-04-18)
 
 Após investigação de falso positivo de divergência de saldo Itaú de R$12k (que era timing de Pix fim de semana com crédito D+1 útil + bug de cutoff em `CURRENT_DATE` no backend do FIN, já fixado em commit `66577e7`), incorporei três aprendizados nas skills pra não repetir o debate:
