@@ -262,14 +262,23 @@ Atualiza `Status Conciliação.md`.
 
 ### Passo 2 — Pessoa diz o saldo do app
 
-> Quanto tá teu saldo no app do banco agora? (ou "qual teu total consolidado que tu imagina?")
+> Quanto tá teu saldo no app do banco agora? (print da **tela inicial** do app, não a linha de saldo dentro do extrato)
+
+**Importante — saldo atual ≠ saldo do dia do extrato:**
+
+- "Saldo do dia" no extrato é fechamento de caixa; só inclui tx liquidadas até aquele dia. Não reflete tx futuras (ex: Pix fim de semana com crédito em D+1 útil).
+- "Saldo atual" no app e em `fin_saldos` inclui TUDO que tá lançado, inclusive tx com `tx_date` no futuro.
+
+Comparar saldo do FIN com "saldo do dia" do extrato dá falso positivo de divergência de milhares de reais quando existe um Pix de fim de semana pendente. Sempre usa o saldo atual da tela inicial do app.
 
 ### Passo 3 — Comparar
 
-- Bate: ✓ "Tá batendo. R$X."
+- Bate (tolerância R$5, ver abaixo): ✓ "Tá batendo. R$X."
 - Não bate: "Diferença de R$Y. Quer rodar conciliação completa pra achar a divergência?"
 
 Se sim, vai pro Modo 1 ou 2 conforme a pessoa tenha extrato ou não.
+
+**Tolerância de rendimento de aplicação automática:** bancos com aplicação automática (Itaú "Aplic Aut Mais", Santander, etc.) agregam rendimentos de forma que diverge ~R$0,50–R$5 por mês do lançamento feito no FIN. Divergência pequena concentrada em "Rendimento Conta Corrente" é ruído esperado, não trava conciliação — nomeia como "divergência de rendimento residual" e segue.
 
 **Atenção USD:** se a diferença aparece só no `fin_patrimonio` (e não em contas BRL individuais), pode ser variação de cotação entre a leitura anterior e a atual — cotação muda, patrimônio consolidado muda, nenhuma transação faltou. Confirma isso antes de partir pra investigação.
 

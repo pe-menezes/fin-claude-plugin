@@ -7,6 +7,14 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Ajustes estruturais nas skills (2026-04-18)
+
+Após investigação de falso positivo de divergência de saldo Itaú de R$12k (que era timing de Pix fim de semana com crédito D+1 útil + bug de cutoff em `CURRENT_DATE` no backend do FIN, já fixado em commit `66577e7`), incorporei três aprendizados nas skills pra não repetir o debate:
+
+- **`extrato`** — seção "Reconciliação de saldo pós-import": agora diferencia explicitamente "saldo atual do app" vs "saldo do dia do extrato", cobre convenção D+1 de Pix em fim de semana, e define tolerância de ~R$5/mês pra rendimento de aplicação automática como ruído aceitável (não trava conciliação).
+- **`conciliar`** — Modo 3 (conferência de saldo): mesma distinção saldo atual vs saldo do dia, mesma tolerância de rendimento. Evita falso positivo quando existe Pix fim de semana pendente com `tx_date` futura.
+- **`lancar`** — nova seção "Pix em fim de semana / feriado (regra D+1 útil)": ao lançar Pix em sábado/domingo/feriado, default passa a ser data do próximo dia útil (pra bater com extrato quando conciliar). Confirmação explicita a regra aplicada.
+
 ## [0.4.0] - 2026-04-13
 
 Minor release que sincroniza o plugin com o loop grande do FIN backend v2.3.4 — 20+ bugs/limitações/DX fechados no `fin-app-mcp` (de 33 pra 39 tools). Nenhuma quebra de instalação; é mudança **semântica** em como as skills conversam com a pessoa (principalmente USD e estornos).

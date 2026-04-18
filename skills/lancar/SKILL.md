@@ -376,6 +376,20 @@ Se a pessoa mencionar data ("ontem", "anteontem", "dia 5", "10 de março"), pars
 
 Pra "essa semana" / "mês passado" / coisas vagas → pergunta o dia exato.
 
+### Pix em fim de semana / feriado (regra D+1 útil)
+
+Pix feito em sábado, domingo ou feriado é creditado no extrato bancário com **data D+1 útil** (convenção bancária brasileira). Exemplo: Pix feito sábado 18/04 sai pro destinatário com data de crédito segunda 20/04.
+
+**Regra pra lançamento:**
+
+- Se a pessoa falar *"acabei de fazer um Pix"* num sábado/domingo/feriado → **lança com a data do próximo dia útil**, não a data de hoje. Isso garante que bate com o extrato do banco quando conciliar.
+- Confirmação na linha deve deixar explícita: *"...data 20/04 (próximo dia útil, padrão Pix fim de semana). Confirma?"*
+- Se a pessoa quiser lançar com a data real em que fez (sábado), ela tem que pedir explicitamente — e alertar que vai divergir do extrato.
+
+Isso vale pra **entradas** também: se alguém fez Pix pro Pedro no sábado, a entrada vai aparecer no extrato com data de segunda.
+
+Regra não vale pra TED, débito automático, boleto — esses têm suas próprias convenções e normalmente o banco já mostra a data certa pra pessoa copiar.
+
 ### Valor ambíguo
 
 Se a pessoa não disser o valor claramente, pergunta. Não chuta.

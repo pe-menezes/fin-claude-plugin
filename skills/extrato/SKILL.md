@@ -289,11 +289,31 @@ Se a pessoa deu uma regra explícita ("loja nova SA é sempre roupa"), adiciona 
 
 Depois de importar todas as transações do extrato em lote, **sempre** reconcilia o saldo da conta no FIN com o saldo real do app bancário. Isso é o que fecha o lote — se pular, o saldo fica à deriva e toda sessão futura vai ter que lidar com número errado.
 
-**Fluxo simplificado (v2.3.4):**
-1. Pergunta pra pessoa: *"Qual é o saldo atual do app do [banco] agora? (print da tela inicial ajuda)"*. Se o extrato tinha linha de "saldo final", usa como referência mas **confirma com a pessoa** porque o OFX pode ter data de corte diferente de "agora".
-2. Chama `fin_saldos` pra pegar o saldo exibido atual. Se já bater, nada a fazer — avisa *"✓ Saldo já bate, R$X,XX"* e fim.
+### Comparar com saldo ATUAL do app, não com "saldo do dia" do extrato
+
+São conceitos diferentes e comparar o errado causa falso positivo de divergência de milhares de reais:
+
+- **"Saldo do dia X" no extrato** = fechamento de caixa, só inclui tx já liquidadas até aquele dia. Não reflete tx com data de crédito futura.
+- **"Saldo atual" no app do banco** (tela inicial) e **`fin_saldos`** = inclui TUDO que está lançado, inclusive tx com `tx_date` no futuro (ex: Pix feito em fim de semana com crédito em D+1 útil).
+
+Sempre peça print da **tela inicial do app do banco**, não da linha de "saldo" dentro do extrato. Se a pessoa mandar só extrato, a última linha de saldo é só referência — o saldo real "agora" pode ser diferente.
+
+### Pix em fim de semana / feriado
+
+Pix feito sábado/domingo/feriado é creditado com **data D+1 útil** no extrato (convenção bancária). Exemplo: Pix feito sábado 18/04 aparece no extrato com `data = 20/04` (segunda). Ao lançar no FIN, use a data que **o banco credita**, não a data que a pessoa fez o Pix — pra bater com o extrato quando conciliar.
+
+O saldo atual do banco já reflete o Pix mesmo antes da data de crédito (ele sai como "agendado/em processamento"). O saldo do FIN também reflete, porque o FIN soma todas as tx lançadas sem cutoff de data.
+
+### Fluxo simplificado (v2.3.4)
+
+1. Pergunta pra pessoa: *"Qual é o saldo atual do app do [banco] agora? (print da tela inicial, não a linha do extrato)"*. Se o extrato tinha linha de "saldo final", usa como referência mas **não confia** — o saldo "agora" pode já incluir movimentos pós-corte do extrato.
+2. Chama `fin_saldos` pra pegar o saldo exibido atual. Se já bater (tolerância R$5, ver abaixo), nada a fazer — avisa *"✓ Saldo já bate, R$X,XX"* e fim.
 3. Se não bater, **primeiro investiga**: pergunta *"tá dando R$X a mais/menos — falta lançar alguma coisa desde o último movimento do extrato, ou tem duplicata?"*.
 4. Se a pessoa confirmar que o saldo inicial do período estava errado no FIN (típico em primeira importação), chama `fin_ajustar_saldo_conta` passando o **saldo desejado** direto em `amount_cents`. A tool retorna `balance_cents_calculado` — confere se bateu. Se bateu, segue. Se não bateu, investiga (tem transação faltando/sobrando que não é resolvida por ajuste de `initial_balance` sozinho).
+
+### Tolerância de ruído de rendimento
+
+Bancos que têm aplicação automática (Itaú "Aplic Aut Mais", Santander equivalente, etc.) agregam rendimentos de forma que nem sempre bate 1:1 com o extrato. Divergência de até **~R$5 acumulada por mês** em rendimentos de aplicação automática é normal e **não deve travar a conciliação**. Nomeia como "divergência de rendimento residual" e segue. Se a divergência for maior que isso ou concentrada em uma data específica (não só rendimento), aí sim investiga.
 
 **O que mudou de antes:** não precisa mais calcular `initial_balance_novo` manualmente nem chamar `fin_listar_contas` pra pegar `initial_balance_atual`. A tool faz a conta e devolve o saldo exibido pós-ajuste. Se `balance_cents_calculado` != desejado, é sinal de problema de dados — investiga em vez de insistir.
 
