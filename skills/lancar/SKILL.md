@@ -113,7 +113,7 @@ Se ambíguo, pergunta:
 
 1. **`fin_criar_despesa` aceita contas USD.** `amount` sempre é gravado em BRL (fonte da verdade pra relatórios), mas a tool aceita `original_amount_cents` + `original_currency: "USD"` pra preservar o valor nativo. Dois modos:
    - **Modo BRL exato:** passa `amount_cents` (BRL que saiu) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real que saiu da conta (extrato/app da conta USD mostra).
-   - **Modo via cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação BRL por 1 USD em 1/10000, ex: 51023 = R$5,1023/USD). Backend calcula o BRL. Use quando a pessoa só tem a cotação estimada.
+   - **Modo via cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate` (cotação em decimal BRL por 1 USD, ex: `5.1023` = R$5,1023/USD). Backend calcula o BRL. Use quando a pessoa só tem a cotação estimada.
    - **Nunca** passa só `amount_cents` numa conta USD. Retorna 422.
    - O que perguntar: *"Gastou US$X em [conta USD] — sabe quanto saiu em reais, ou prefere estimar com uma cotação?"*
 2. **Câmbio é uma operação atômica** via `fin_cambio`. Cria 2 transações vinculadas (uma despesa na origem, uma receita no destino), ambas com categoria "Câmbio" e um `exchange_pair_id` compartilhado. Se uma falhar, a outra é desfeita.
@@ -340,8 +340,8 @@ O workaround antigo (lançar cada parcela avulsa numerada manualmente com `invoi
 
 Se a pessoa disser **"foi estornado"** ou "veio estorno de X":
 
-- **Estorno NÃO é receita.** É uma despesa vinculada à transação original via `reversal_of_id`.
-- Se você já sabe o UUID da original (achou via `fin_buscar_transacoes` ou `fin_fatura_transacoes`), usa `fin_criar_estorno` — tool atômica que herda account/category/subcategory da original automaticamente. Só precisa passar `original_transaction_id` + `amount_cents`.
+- **Estorno NÃO é receita.** No banco vira despesa vinculada à original (coluna `reversal_of_id`), mas a **única forma de criar** é via `fin_criar_estorno` — a rota `fin_criar_despesa` não aceita mais `reversal_of_id` no body (retorna 400).
+- Se você já sabe o UUID da original (achou via `fin_buscar_transacoes` ou `fin_fatura_transacoes`), usa `fin_criar_estorno` — tool atômica que valida ownership + 7 invariants e herda account/category/subcategory da original automaticamente. Só precisa passar `original_transaction_id` + `amount_cents`.
 - Fluxo:
   1. Busca a original com `fin_buscar_transacoes` (valor + estabelecimento próximos, janela de 3 meses).
   2. Mostra: *"Achei a despesa original (R$100, Lojas X, dia Y). Vou criar o estorno apontando pra ela. Confirma?"*

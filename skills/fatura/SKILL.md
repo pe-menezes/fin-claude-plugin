@@ -139,15 +139,15 @@ Mesma lógica do `extrato` pros 5 formatos (OFX, CSV, CNAB 240, texto, PDF). Ext
 
 ### Passo 6 — Tratamento de estornos
 
-**REGRA CRÍTICA do FIN:** estorno em cartão NÃO é receita. É **uma despesa vinculada à transação original via `reversal_of_id`**.
+**REGRA CRÍTICA do FIN:** estorno em cartão NÃO é receita. No banco vira despesa vinculada à original (coluna `reversal_of_id`), mas **a única forma de criar é via `fin_criar_estorno`** — `fin_criar_despesa` não aceita mais `reversal_of_id` no body (retorna 400).
 
 Pra cada transação que parece estorno (descrição contém "ESTORNO" / "DEVOLUÇÃO" / "REEMBOLSO" OU valor negativo numa fatura):
 
 1. **Achar a despesa original** no FIN:
    - `fin_buscar_transacoes` filtrando por mesmo cartão, valor próximo (positivo do mesmo módulo), descrição parecida, dentro de uma janela de tempo (tipicamente até 3 meses antes)
-2. **Se achou exatamente uma:** chama **`fin_criar_estorno`** (tool atômica): passa `original_transaction_id` + `amount_cents`. Herda account/category/subcategory da original automaticamente, marca `reversal_kind` como 'full' ou 'partial' baseado no amount. Sem precisar passar descrição (vira "Estorno: <original desc>") nem conta.
+2. **Se achou exatamente uma:** chama **`fin_criar_estorno`** (tool atômica): passa `original_transaction_id` + `amount_cents`. Valida ownership + 7 invariants, herda account/category/subcategory da original automaticamente, deriva `reversal_kind` ('full' ou 'partial') baseado no amount. Sem precisar passar descrição (vira "Estorno: <original desc>") nem conta.
 3. **Se achou várias possíveis:** mostra pra pessoa: "Achei [N] despesas que podem ser a original desse estorno. Qual é? [lista]"
-4. **Se não achou nenhuma:** avisa: "Não achei a despesa original desse estorno (R$X em [estabelecimento]). Vou lançar como despesa negativa sem `reversal_of_id`. Tu pode editar depois se quiser."
+4. **Se não achou nenhuma:** avisa: "Não achei a despesa original desse estorno (R$X em [estabelecimento]). Vou lançar como despesa normal (sem vínculo com original). Tu pode deletar depois e recriar com `fin_criar_estorno` se achar a original."
 
 **Nunca lança estorno como receita.**
 
@@ -397,7 +397,7 @@ Compras internacionais aparecem com USD/EUR + BRL convertido. Lança o valor em 
 
 ### Compra estornada parcialmente
 
-"ESTORNO PARCIAL R$50 de R$200" — lança o estorno de R$50 com `reversal_of_id` apontando pra original de R$200. A original NÃO é apagada.
+"ESTORNO PARCIAL R$50 de R$200" — busca a original de R$200 (`fin_buscar_transacoes`) e chama `fin_criar_estorno` com `original_transaction_id` + `amount_cents: 5000`. A original NÃO é apagada.
 
 ### Fatura muito grande (100+ linhas)
 
@@ -406,7 +406,7 @@ Processa em batches de 50 linhas pra revisão (mesma lógica do extrato).
 ## Erros comuns que você deve evitar
 
 1. **Lançar fatura via `fin_criar_despesa`** → SEMPRE usa `fin_fatura_transacoes`
-2. **Lançar estorno como receita** → SEMPRE despesa com `reversal_of_id`
+2. **Lançar estorno como receita** → SEMPRE via `fin_criar_estorno` (que grava como despesa vinculada via `reversal_of_id` no banco)
 3. **Re-lançar parcelas que o FIN já gerou** → checa se já existe antes
 4. **Confundir mês de vencimento com mês das compras** → fatura que vence em março contém compras de fevereiro/início de março
 5. **Usar dia de fechamento cadastrado em vez do real** → sempre detecta o real do conteúdo da fatura

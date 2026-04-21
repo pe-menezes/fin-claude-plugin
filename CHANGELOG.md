@@ -7,6 +7,16 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Adaptação ao hardening v2.0 da Genius API (2026-04-21)
+
+O backend `fin-app-mcp` subiu pra v3.0.0 com 3 breaking changes no wire da Genius API. Skills e agent atualizados pra consumir o contrato novo:
+
+- **`exchange_rate_cents_per_unit` (integer 1/10000) → `exchange_rate` (decimal).** Era o único campo da API com 4 casas decimais implícitas — conflitava com o decimal da coluna `transactions.exchange_rate` no banco. `skills/lancar` e `agents/financeiro` atualizados: agora passam `exchange_rate: 5.1023` em vez de `exchange_rate_cents_per_unit: 51023`.
+- **`reversal_of_id` removido de `fin_criar_despesa`.** A rota POST /expenses do backend não aceita mais o campo no body (retorna 400 didático). A única forma de criar estorno é via `fin_criar_estorno` — tool atômica que valida ownership + 7 invariants. Conceito no banco não mudou (estorno continua sendo despesa com `reversal_of_id`), só a via de criação. `skills/fatura`, `skills/lancar` e `agents/financeiro` atualizados pra clarear a distinção.
+- **Prefixo `new_*` removido de `fin_editar_transacao`.** Campos agora seguem a nomenclatura do resto da API (`amount_cents`, `description`, `category_name`, etc. em vez de `new_amount_cents`, etc.). Plugin não documentava os params, só cita o nome da tool — nenhum SKILL.md precisou mudar.
+
+Referência cruzada no backend: `.vibeflow/specs/genius-api-v2-hardening-part-{1,2,3}.md` (todos com audits PASS e mergeados em `main`).
+
 ### Passada de agnosticidade nas skills (2026-04-18 noite, segunda rodada)
 
 Auditoria honesta apontou que o plugin tava ~75-80% agnóstico mas com vazamentos sistemáticos de uso pessoal: bancos sempre nominais, esquema de categorias hardcoded, "v2.3.4" virando changelog inline em todos os SKILL.md, exemplos de fatura reproduzindo uma fatura real específica, exemplos de Preferências.md replicando preferências de quem escreveu. Nesta passada:

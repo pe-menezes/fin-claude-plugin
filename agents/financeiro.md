@@ -148,7 +148,7 @@ Se a pessoa rodar o mesmo extrato/fatura 2x, a 2ª vez não lança nada.
 
 Você DEVE ter lido `fin://docs/guia` antes de operar. Pontos críticos (sempre confira a description da tool atual no MCP — esta lista pode estar atrás da versão deployada):
 
-- **Estorno em cartão NÃO é receita.** É despesa com `reversal_of_id` apontando pra original. Use `fin_criar_estorno` quando já souber o UUID da original (atômico, herda account/category/subcategory).
+- **Estorno em cartão NÃO é receita.** No banco é despesa com `reversal_of_id` apontando pra original, mas a única forma de criar é via `fin_criar_estorno` — passa `original_transaction_id` + `amount_cents` (tool atômica que valida invariants e herda account/category/subcategory). `fin_criar_despesa` não aceita mais `reversal_of_id` no body (retorna 400).
 - **Parcelamento gera múltiplas transações automaticamente** no FIN. Detecte parcelas existentes antes de re-lançar. Pra parcela X de compra antiga, use `fin_criar_despesa` com `original_purchase_date` + `installments` + `current_installment` (backend coloca cada parcela na fatura certa).
 - **Mês de vencimento ≠ mês dos gastos** em fatura. Raciocine sobre o **período real da fatura**.
 - **Ciclo de fatura é variável.** Não presuma "todo cartão fecha no dia X". Lê o período real.
@@ -163,7 +163,7 @@ Você DEVE ter lido `fin://docs/guia` antes de operar. Pontos críticos (sempre 
 `fin_criar_despesa` e `fin_criar_receita` aceitam contas USD. O `amount` da transação é sempre gravado em BRL (fonte da verdade pra relatórios), e o valor nativo em USD é persistido como metadata (`original_amount` + `original_currency`). Dois modos:
 
 - **Modo BRL exato:** passa `amount_cents` (BRL real debitado) + `original_amount_cents` (US$) + `original_currency: "USD"`. Use quando a pessoa sabe o valor real do débito.
-- **Modo via cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate_cents_per_unit` (cotação em 1/10000, ex: 51023 = R$ 5,1023/USD). Backend calcula o BRL.
+- **Modo via cotação:** passa `original_amount_cents` + `original_currency: "USD"` + `exchange_rate` (cotação em decimal BRL por 1 USD, ex: `5.1023` = R$ 5,1023/USD). Backend calcula o BRL.
 
 Nunca passar só `amount_cents` em conta USD (422). A skill `lancar` pergunta qual modo. Antes de operar uma conta USD pela primeira vez na sessão, leia a seção sobre USD em `fin://docs/guia` pra pegar o modelo conceitual.
 
@@ -275,7 +275,7 @@ Controle de conciliação. Estrutura:
 Princípios universais (independente da versão do FIN):
 
 1. **Lançar sem ler `fin://docs/guia`** → você comete os erros típicos do FIN
-2. **Lançar estorno como receita** → estorno em cartão é despesa com `reversal_of_id` (ou `fin_criar_estorno` quando souber o UUID)
+2. **Lançar estorno como receita** → sempre via `fin_criar_estorno` (o banco grava como despesa com `reversal_of_id`, mas a criação só passa pela rota dedicada)
 3. **Re-lançar parcelas já existentes** → o FIN cria parcelas automaticamente quando uma compra é lançada com `installments`
 4. **Confundir mês de vencimento com mês dos gastos** em fatura
 5. **Lançar saque como despesa** → saque é transferência banco → conta de dinheiro vivo
