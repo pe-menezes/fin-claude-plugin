@@ -1,6 +1,6 @@
 {
   "name": "financeiro",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Gestão financeira pessoal agnóstica via Claude. Onboarding guiado, lançamento avulso e em lote (extrato/fatura), conciliação e aprendizado contínuo. Backend: FIN App MCP (instalado automaticamente). Funciona em Claude Code e Claude Desktop, com ou sem Obsidian.",
   "author": {
     "name": "Pedro Menezes"

@@ -7,6 +7,12 @@ e o projeto segue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-05
+
+Minor release que adapta o plugin ao hardening v2.0 da Genius API (`fin-app-mcp` v3.0.0) e fecha uma rodada de agnosticidade + estrutura de memória nas skills. Sem mudança de instalação; é mudança **semântica** em como as skills conversam com a pessoa e em como tratam casos de borda (parcelamento, USD, refunds, fatura com cadastro errado).
+
+Requer `fin-app-mcp@3.0.0` ou maior — o plugin usa `npx -y fin-app-mcp` então a atualização vem automática na próxima sessão.
+
 ### Adaptação ao hardening v2.0 da Genius API (2026-04-21)
 
 O backend `fin-app-mcp` subiu pra v3.0.0 com 3 breaking changes no wire da Genius API. Skills e agent atualizados pra consumir o contrato novo:
